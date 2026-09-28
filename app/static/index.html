@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Lead Finder</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #161d2e;
+    --border: #263049;
+    --text: #e7ecf5;
+    --muted: #8a93a6;
+    --accent: #4f8cff;
+    --accent2: #34d399;
+    --danger: #f16c6c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at top, #141a29 0%, #0b0e16 100%);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 48px 20px;
+  }
+  .wrap { width: 100%; max-width: 760px; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  h1 { font-size: 26px; margin: 0; }
+  .sub { color: var(--muted); margin-bottom: 32px; font-size: 14px; }
+  .help-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-top: 0;
+    width: auto;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; margin-top: 16px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=number], select {
+    width: 100%;
+    padding: 11px 12px;
+    background: #0f1420;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 14px;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 16px; }
+  .row > div { flex: 1; }
+  .checkbox-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 18px; }
+  .checkbox-row input { margin-top: 3px; }
+  .checkbox-row label { margin: 0; color: var(--text); font-size: 14px; }
+  .checkbox-row .hint { margin-top: 2px; margin-left: 0; }
+  button {
+    margin-top: 24px;
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #6b5bff);
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.stop-btn {
+    background: transparent;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    margin-top: 12px;
+  }
+  .advanced-toggle {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    padding: 0;
+    margin-top: 20px;
+    width: auto;
+    cursor: pointer;
+    text-align: left;
+    display: block;
+  }
+  #advancedPanel, #sourcesPanel { display: none; margin-top: 8px; }
+  #advancedPanel.show, #sourcesPanel.show { display: block; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  #status { display: none; }
+  #status.show { display: block; }
+  .status-line { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge.done { background: rgba(52,211,153,0.15); color: var(--accent2); }
+  .badge.error { background: rgba(241,108,108,0.15); color: var(--danger); }
+  .badge.working { background: rgba(79,140,255,0.15); color: var(--accent); }
+  .download-row { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  a.download-btn {
+    display: inline-block;
+    padding: 11px 18px;
+    background: var(--accent2);
+    color: #06210f;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 700;
+    font-size: 14px;
+  }
+  a.download-btn.secondary {
+    background: transparent;
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+  }
+  .error-box {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: rgba(241,108,108,0.1);
+    border: 1px solid rgba(241,108,108,0.3);
+    border-radius: 8px;
+    color: var(--danger);
+    font-size: 13px;
+    display: none;
+  }
+  #logPanel {
+    margin-top: 16px;
+    background: #090c13;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    height: 220px;
+    overflow-y: auto;
+    font-family: "Consolas", "SF Mono", monospace;
+    font-size: 12.5px;
+    line-height: 1.7;
+    color: #a9b4c9;
+  }
+  #logPanel .line.found { color: var(--accent2); }
+  #logPanel .line.step { color: var(--accent); }
+
+  .modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    align-items: center; justify-content: center;
+    z-index: 50;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    max-width: 560px;
+    width: 90%;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .modal h2 { margin-top: 0; font-size: 20px; }
+  .modal h3 { font-size: 15px; margin-bottom: 6px; color: var(--accent); }
+  .modal p, .modal li { font-size: 13.5px; color: #c7cede; line-height: 1.6; }
+  .modal ul { padding-left: 18px; }
+  .modal .close-btn { margin-top: 20px; background: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <h1>Lead Finder</h1>
+    <button class="help-btn" onclick="toggleHelp(true)">? Help</button>
+  </div>
+  <div class="sub">Business discovery &amp; public contact extraction — runs entirely on this machine.</div>
+
+  <div class="card">
+    <label for="businessType">Business type</label>
+    <input type="text" id="businessType" placeholder="e.g. dentists, restaurants, software companies" />
+
+    <label for="location">Location</label>
+    <input type="text" id="location" placeholder="e.g. Boston, USA" />
+
+    <div class="row">
+      <div>
+        <label for="maxResults">Target number of results</label>
+        <input type="number" id="maxResults" value="60" min="10" max="1000" />
+      </div>
+      <div>
+        <label for="language">Language</label>
+        <input type="text" id="language" value="en" placeholder="en, es, fr…" />
+      </div>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="extractEmails" checked />
+      <label for="extractEmails">Crawl business websites for public emails</label>
+    </div>
+
+    <button type="button" class="advanced-toggle" onclick="togglePanel('sourcesPanel')">🌐 Data sources &amp; coverage ▾</button>
+    <div id="sourcesPanel">
+      <div class="checkbox-row">
+        <input type="checkbox" id="useOsm" />
+        <div>
+          <label for="useOsm" style="display:inline;">Also search OpenStreetMap for extra coverage</label>
+          <div class="hint">Free secondary source. Works best for common categories (restaurants, dentists, cafes, hotels, shops…) — very niche business types may not have an OSM equivalent, in which case this quietly contributes nothing extra.</div>
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="wideAreaGrid" onchange="document.getElementById('gridCellRow').style.display=this.checked?'flex':'none'" />
+        <div>
+          <label for="wideAreaGrid" style="display:inline;">Wide-area grid search (for large regions, not a single small city)</label>
+          <div class="hint">Splits the area into a grid and scans each cell separately for much deeper coverage. Honest tradeoff: gosom scans one cell at a time by default, so this takes roughly N× longer than a single search, where N is the number of cells shown once it starts.</div>
+        </div>
+      </div>
+      <div class="row" id="gridCellRow" style="display:none;">
+        <div>
+          <label for="gridCellKm">Grid cell size (km)</label>
+          <input type="number" id="gridCellKm" value="10" min="2" max="50" />
+          <div class="hint">Smaller = more cells = deeper coverage but much slower. 10km is reasonable for a metro area.</div>
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="jsFallback" />
+        <div>
+          <label for="jsFallback" style="display:inline;">Render stubborn sites with a real browser (catches JS-injected contact info)</label>
+          <div class="hint">Many modern sites inject their contact info via JavaScript, which a plain page fetch never sees. This opens a real headless browser only for businesses where nothing was found the fast way — slower per-site, but recovers otherwise-invisible emails and social links. Requires running "playwright install chromium" once during setup; if that hasn't been done, this option is silently skipped and everything else still works normally.</div>
+        </div>
+      </div>
+    </div>
+
+    <button type="button" class="advanced-toggle" onclick="togglePanel('advancedPanel')">⚙ Advanced options ▾</button>
+    <div id="advancedPanel">
+      <div class="row">
+        <div>
+          <label for="zoom">Map zoom level (optional)</label>
+          <input type="number" id="zoom" placeholder="auto" min="1" max="21" />
+        </div>
+        <div>
+          <label for="radius">Search radius, meters (optional)</label>
+          <input type="number" id="radius" placeholder="auto" min="100" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label for="depthOverride">Depth override (optional)</label>
+          <input type="number" id="depthOverride" placeholder="auto-calculated" min="1" max="20" />
+        </div>
+        <div>
+          <label for="maxTimeOverride">Max time override, seconds (optional)</label>
+          <input type="number" id="maxTimeOverride" placeholder="auto-calculated" min="60" />
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="fastMode" />
+        <label for="fastMode">Fast mode (skips extra detail pages — quicker, slightly less data)</label>
+      </div>
+      <div class="hint">
+        <b>Depth</b> = roughly how many pages of Google Maps results to scan per search (more depth → more
+        businesses found → more time, and a higher chance Google slows you down). <b>Max time</b> is just a
+        safety ceiling — the job stops with whatever it has if it runs past this, it isn't a target to hit.
+        Leave both blank to let the tool pick sensible values from your target result count.
+      </div>
+    </div>
+
+    <button id="searchBtn" onclick="startSearch()">Start Search</button>
+    <button id="stopBtn" class="stop-btn" style="display:none;" onclick="stopSearch()">Stop &amp; Save What's Found</button>
+
+    <div class="error-box" id="errorBox"></div>
+
+    <div id="status">
+      <hr style="border-color: var(--border); margin: 20px 0;" />
+      <div class="status-line">
+        <div class="spinner" id="spinner"></div>
+        <span id="statusText">Starting…</span>
+        <span class="badge working" id="statusBadge">running</span>
+      </div>
+      <div id="logPanel"></div>
+      <div class="download-row" id="downloadArea"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="helpModal">
+  <div class="modal">
+    <h2>How Lead Finder works</h2>
+
+    <h3>1. What it does</h3>
+    <p>Enter a business type and a location. The tool searches Google Maps (and, optionally, OpenStreetMap)
+    for matching businesses, visits each one's website for public emails and social profile links, checks
+    those emails for basic validity, scores each lead, and gives you a downloadable list.</p>
+
+    <h3>2. While it runs</h3>
+    <p>The log panel shows every step live: discovery starting and finishing, then each business being
+    enriched one at a time as it completes.</p>
+
+    <h3>3. Stopping early</h3>
+    <p>Click "Stop &amp; Save What's Found" at any point, in any phase — everything discovered and/or
+    enriched so far is saved to your download, nothing is lost.</p>
+
+    <h3>4. Email validation</h3>
+    <p>Each email gets a confidence rating: <b>High</b> (valid syntax, real mail server, not a generic
+    role account), <b>Medium</b> (valid but role-based like info@, or unverifiable), <b>Low</b> (disposable
+    domain or role-based with no confirmation), <b>Invalid</b> (bad syntax or no mail server found). This is
+    a local, free check — no data is sent to any paid verification service.</p>
+
+    <h3>5. Quality score</h3>
+    <p>A transparent 0–100 score per business, built from: website present, phone present, email
+    confidence, number of social profiles found, and review rating/count. It's a sorting aid, not a
+    guarantee.</p>
+
+    <h3>6. About social profiles</h3>
+    <p>Facebook, Instagram, LinkedIn, and WhatsApp require a login to view most content, so this tool can
+    only capture the public <i>link</i> to each profile found on a business's own website — not private
+    data behind a login.</p>
+
+    <h3>7. Everything is free &amp; local</h3>
+    <p>No paid APIs, no accounts required, no data leaves your computer except to the websites/services
+    being queried (Google Maps via gosom, and optionally OpenStreetMap).</p>
+
+    <button class="close-btn" onclick="toggleHelp(false)">Close</button>
+  </div>
+</div>
+
+<script>
+let pollTimer = null;
+let currentJobId = null;
+let renderedLogCount = 0;
+
+function toggleHelp(show) {
+  document.getElementById('helpModal').classList.toggle('show', show);
+}
+
+function togglePanel(id) {
+  document.getElementById(id).classList.toggle('show');
+}
+
+function showError(msg) {
+  const box = document.getElementById('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+}
+
+function clearError() {
+  document.getElementById('errorBox').style.display = 'none';
+}
+
+function numOrNull(id) {
+  const v = document.getElementById(id).value;
+  return v === '' ? null : Number(v);
+}
+
+async function startSearch() {
+  clearError();
+  const businessType = document.getElementById('businessType').value.trim();
+  const location = document.getElementById('location').value.trim();
+  const maxResults = parseInt(document.getElementById('maxResults').value, 10) || 60;
+  const extractEmails = document.getElementById('extractEmails').checked;
+  const language = document.getElementById('language').value.trim() || 'en';
+  const fastMode = document.getElementById('fastMode').checked;
+  const useOsm = document.getElementById('useOsm').checked;
+  const wideAreaGrid = document.getElementById('wideAreaGrid').checked;
+  const gridCellKm = parseFloat(document.getElementById('gridCellKm').value) || 10;
+  const jsFallback = document.getElementById('jsFallback').checked;
+
+  if (!businessType || !location) {
+    showError('Please enter both a business type and a location.');
+    return;
+  }
+
+  document.getElementById('searchBtn').disabled = true;
+  document.getElementById('status').classList.add('show');
+  document.getElementById('downloadArea').innerHTML = '';
+  document.getElementById('logPanel').innerHTML = '';
+  renderedLogCount = 0;
+  document.getElementById('spinner').style.display = 'inline-block';
+  document.getElementById('statusBadge').className = 'badge working';
+  document.getElementById('statusBadge').textContent = 'running';
+  document.getElementById('statusText').textContent = 'Submitting job…';
+
+  try {
+    const resp = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        business_type: businessType,
+        location: location,
+        max_results: maxResults,
+        extract_emails: extractEmails,
+        language: language,
+        fast_mode: fastMode,
+        zoom: numOrNull('zoom'),
+        radius: numOrNull('radius'),
+        depth_override: numOrNull('depthOverride'),
+        max_time_override: numOrNull('maxTimeOverride'),
+        use_osm: useOsm,
+        wide_area_grid: wideAreaGrid,
+        grid_cell_km: gridCellKm,
+        use_js_fallback: jsFallback
+      })
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || ('Request failed: ' + resp.status));
+    }
+    const job = await resp.json();
+    currentJobId = job.id;
+    pollStatus(job.id);
+  } catch (e) {
+    showError(e.message);
+    resetButton();
+  }
+}
+
+function resetButton() {
+  document.getElementById('searchBtn').disabled = false;
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('spinner').style.display = 'none';
+}
+
+function renderLogs(logs) {
+  if (!logs || logs.length <= renderedLogCount) return;
+  const panel = document.getElementById('logPanel');
+  for (let i = renderedLogCount; i < logs.length; i++) {
+    const div = document.createElement('div');
+    div.className = 'line' + (logs[i].includes('found') ? ' found' : (logs[i].startsWith('🔎') ? ' step' : ''));
+    div.textContent = logs[i];
+    panel.appendChild(div);
+  }
+  renderedLogCount = logs.length;
+  panel.scrollTop = panel.scrollHeight;
+}
+
+function downloadLinks(jobId) {
+  return `
+    <a class="download-btn" href="/api/search/${jobId}/download?format=csv">Download CSV</a>
+    <a class="download-btn secondary" href="/api/search/${jobId}/download?format=xlsx">Excel</a>
+    <a class="download-btn secondary" href="/api/search/${jobId}/download?format=json">JSON</a>
+  `;
+}
+
+async function stopSearch() {
+  if (!currentJobId) return;
+  document.getElementById('stopBtn').disabled = true;
+  try {
+    await fetch(`/api/search/${currentJobId}/stop`, { method: 'POST' });
+    // the poll loop picks up and reflects the resulting state regardless
+  } catch (e) {
+    showError('Could not reach the server to stop the job: ' + e.message);
+    document.getElementById('stopBtn').disabled = false;
+  }
+}
+
+async function pollStatus(jobId) {
+  document.getElementById('statusText').textContent = 'Starting…';
+  document.getElementById('stopBtn').style.display = 'block';
+  document.getElementById('stopBtn').disabled = false;
+
+  pollTimer = setInterval(async () => {
+    try {
+      const resp = await fetch(`/api/search/${jobId}`);
+      if (!resp.ok) throw new Error('Status check failed: ' + resp.status);
+      const job = await resp.json();
+      renderLogs(job.logs);
+      const status = job.status;
+
+      if (status === 'done' || status === 'stopped') {
+        clearInterval(pollTimer);
+        document.getElementById('statusText').textContent =
+          status === 'done' ? 'Done — all sources crawled, validated, and scored.' : 'Stopped — everything found so far is saved.';
+        document.getElementById('statusBadge').className = 'badge done';
+        document.getElementById('statusBadge').textContent = status;
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('downloadArea').innerHTML = downloadLinks(jobId);
+        resetButton();
+      } else if (status === 'failed') {
+        clearInterval(pollTimer);
+        document.getElementById('statusBadge').className = 'badge error';
+        document.getElementById('statusBadge').textContent = 'failed';
+        showError(job.error_detail || 'The job failed. Check the gosom window for details.');
+        resetButton();
+        // even a failed job may have partial results worth grabbing
+        if (job.logs && job.logs.length > 2) {
+          document.getElementById('downloadArea').innerHTML = downloadLinks(jobId);
+        }
+      } else if (status === 'enriching') {
+        const done = job.enrichment_done || 0;
+        const total = job.enrichment_total || 0;
+        document.getElementById('statusText').textContent =
+          total ? `Crawling websites & socials… (${done}/${total})` : 'Discovery done — starting enrichment…';
+      } else { // "discovering"
+        const mins = Math.floor((job.elapsed_seconds || 0) / 60);
+        const secs = (job.elapsed_seconds || 0) % 60;
+        const timeStr = `${mins}m ${secs}s`;
+        if (job.discovery_total > 0) {
+          document.getElementById('statusText').textContent =
+            `Scanning grid cell ${job.discovery_done}/${job.discovery_total}… (${timeStr} elapsed)`;
+        } else {
+          document.getElementById('statusText').textContent = `Searching for businesses… (${timeStr} elapsed)`;
+        }
+      }
+    } catch (e) {
+      clearInterval(pollTimer);
+      showError(e.message);
+      resetButton();
+    }
+  }, 3000);
+}
+</script>
+</body>
+</html>
