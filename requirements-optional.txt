@@ -1,0 +1,7 @@
+# Optional - only needed for the "render stubborn sites with a real browser"
+# advanced option. Installed separately from requirements.txt on purpose:
+# if this fails on your Python version (newer Pythons sometimes lag behind
+# on prebuilt wheels for playwright's greenlet dependency), the core tool
+# still installs and runs fine without it - that checkbox just won't work
+# until this installs successfully.
+playwright>=1.47

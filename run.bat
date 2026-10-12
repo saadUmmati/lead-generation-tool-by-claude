@@ -23,6 +23,6 @@ if %errorlevel%==0 (
 )
 
 echo Port is free - starting fresh.
-start "" http://127.0.0.1:9000
-uvicorn app.main:app --host 127.0.0.1 --port 9000
+start "" cmd /c "timeout /t 4 >nul & start http://127.0.0.1:9000"
+python -m uvicorn app.main:app --host 127.0.0.1 --port 9000
 pause

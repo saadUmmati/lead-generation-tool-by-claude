@@ -1,0 +1,81 @@
+# ====================================================================
+#  LEAD FINDER - MY OFFER FORM
+#  Fill this in ONCE. The tool reads it to write a tailored pitch for
+#  every business that qualifies.
+#
+#  HOW TO FILL IT
+#   - Replace each [ fill here ] with your own text, on the same line.
+#   - Lines starting with # are comments; they are ignored.
+#   - Lists are comma-separated:  dentists, clinics, orthodontists
+#   - Leave a field as [ fill here ] to skip it.
+#   - One offer is enough. To sell several things, copy an entire
+#     "=== OFFER ===" block below and fill it in again. The tool picks
+#     the best-matching offer for each business using MATCH_CATEGORIES
+#     and MATCH_KEYWORDS.
+#   - Be specific. "We build AI chatbots that book appointments" gives
+#     far better pitches than "We offer digital solutions".
+# ====================================================================
+
+
+=== SENDER ===
+# Who the pitch comes from (used in the sign-off and tone)
+YOUR_NAME: Muhammad Saad Ahmed
+YOUR_ROLE: Managing Director
+COMPANY_NAME: UK Drive Car Hire
+COMPANY_WEBSITE: https://www.ukdrivecarhire.example
+REPLY_TO_EMAIL: msaadisiddiqui@gmail.com
+PHONE_OR_WHATSAPP: +44 7700 900123
+COMPANY_ONE_LINER: UK Drive Car Hire provides affordable, reliable self-drive car and van rental services across the United Kingdom for individuals, families, tourists, and businesses.
+# Tone: friendly, professional, direct, casual, formal - pick one or two
+TONE: Friendly, professional
+# Language of the pitch. Write a language name, or AUTO to match the
+# business's country/website language.
+PITCH_LANGUAGE: AUTO
+
+# Compliance footer added to every email (many countries require an
+# opt-out and a sender identity on commercial email)
+OPT_OUT_LINE: If this isn't relevant, just reply "no thanks" and I won't contact you again.
+POSTAL_ADDRESS: 123 High Street, London, SW1A 1AA, United Kingdom
+
+
+=== OFFER ===
+OFFER_NAME: ZG Car and Van Rental Services
+
+# What you sell, in 1-2 plain sentences
+WHAT_I_SELL: We provide short-term and long-term car and van rentals across the UK, with a range of economy cars, family vehicles, SUVs, executive cars, and commercial vans. Customers can request quotes, check rental requirements, and arrange vehicle collection or delivery where available.
+
+# Which businesses this offer is FOR. The tool matches these against
+# each business's Google Maps category and its website text.
+MATCH_CATEGORIES: car rental agency, car hire service, vehicle rental agency, van rental agency, luxury car rental service, airport car rental service, minibus hire service, chauffeur service
+MATCH_KEYWORDS: car rental, car hire, van hire, vehicle hire, self-drive car rental, short-term car hire, long-term car rental, family car hire, business vehicle rental, airport car hire, executive car rental, affordable car hire, commercial van hire, UK vehicle rental
+
+# Skip businesses that look like this (e.g. large chains, franchises)
+SKIP_IF_KEYWORDS: Enterprise Rent-A-Car, Hertz, Avis, SIXT, Europcar, Budget, multinational car rental chain, national franchise
+
+# The problem the business has that your offer fixes
+PROBLEM_I_SOLVE: Customers need convenient and affordable transport for holidays, business trips, moving house, and everyday travel. They may struggle to find the right vehicle, understand rental requirements, compare prices, or arrange convenient collection and return. Our service offers a straightforward rental process with a choice of vehicles for different needs and budgets.
+
+# The result they get. Real numbers beat adjectives.
+OUTCOME_FOR_THEM: Customers can find a suitable rental vehicle more easily, request a quote, understand rental terms before booking, and arrange short-term or long-term transport through a convenient booking process.
+
+# Proof: past clients, results, case studies, years in business
+PROOF_POINTS: Fictional example company established in 2021, offering a selection of 50+ vehicles, serving customers across London and nearby areas, and providing flexible daily, weekly, and monthly rental options.
+
+# A low-friction hook (free audit, free demo, free trial, sample...)
+HOOK: New customers can request a free, no-obligation rental quote to find a suitable vehicle for their travel dates, rental duration, and budget.
+
+# What you want the reader to do next
+CALL_TO_ACTION: Visit our website or email us with your preferred vehicle type, rental dates, and collection location to receive a personalised rental quote.
+
+# Optional: price range, if you want it mentioned
+PRICE_HINT: Example prices start from £25 per day for economy cars and £45 per day for vans, subject to availability, rental duration, insurance, and other applicable charges.
+
+# Words/claims the pitch must NEVER use (guarantees, competitors...)
+DONT_SAY: Guaranteed vehicle availability, guaranteed lowest prices, unverified customer reviews, fabricated testimonials, misleading insurance claims, hidden fees, or claims that all rentals include unlimited mileage or free delivery.
+
+# Anything else the writer should know
+EXTRA_NOTES: This is a fictional UK car rental company for demonstration and testing purposes only. The company name, website, email, phone number, address, fleet size, establishment date, service coverage, and prices are dummy data and must not be presented as verified real-world information. The .example domain is reserved for illustrative use and is not a live business website. Target customers looking for reliable and affordable car or van rentals in the UK. Use British English, explain rental requirements clearly, and mention that prices and availability depend on the selected vehicle, dates, location, and rental terms.
+
+
+# ---------- To add a second offer, copy from "=== OFFER ===" down to
+# ---------- here, paste it below, and fill it in.
