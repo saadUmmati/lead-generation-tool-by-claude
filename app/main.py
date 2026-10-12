@@ -31,6 +31,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from enrich import enrich_one_bounded, CONCURRENCY
+from site_summary import SUMMARY_FIELDS
+from offer_profile import load_offer_profile
+from pitch_filter import annotate_row
 from validate import best_confidence
 from scoring import score_business
 from dedup import dedupe_rows
@@ -44,7 +47,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Lead Finder")
 
-BUILD_TAG = "2026-08-28-c1"
+BUILD_TAG = "2026-10-12-d1"
 print("=" * 60)
 print(f"  LEAD FINDER BACKEND STARTING - build {BUILD_TAG}")
 print("=" * 60)
@@ -76,11 +79,14 @@ job_tasks: dict[str, asyncio.Task] = {}
 
 FIELDNAMES = [
     "title", "category", "address", "phone", "website",
-    "email_confidence_primary", "extra_emails", "email_sources", "email_confidence_extra",
+    "emails", "email_confidence_primary", "extra_emails", "email_sources", "email_confidence_extra",
     "facebook", "instagram", "linkedin", "whatsapp", "x_twitter", "youtube", "tiktok",
     "quality_score", "source", "review_rating", "review_count",
     "latitude", "longitude", "google_maps_link",
-]
+    "pitch_status", "pitch_offer", "pitch_match_score", "pitch_match_reason",
+] + SUMMARY_FIELDS
+
+OFFER_PATH = os.path.join(os.path.dirname(__file__), "..", "my_offer.txt")
 
 
 def add_log(job_id: str, message: str) -> None:
@@ -102,6 +108,7 @@ class SearchRequest(BaseModel):
     wide_area_grid: bool = False
     grid_cell_km: float = 10.0
     use_js_fallback: bool = False
+    min_pitch_score: int = 40
 
 
 def estimate_depth(max_results: int) -> int:
@@ -273,6 +280,14 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
             if not started:
                 browser_pool = None
 
+        profile = load_offer_profile(OFFER_PATH)
+        if profile.ok:
+            add_log(job_id, f"📝 Offer form loaded: {len(profile.offers)} offer(s).")
+            for prob in profile.problems:
+                add_log(job_id, f"   ⚠ my_offer.txt: {prob}")
+        else:
+            add_log(job_id, "📝 Pitch matching skipped - my_offer.txt is missing or not filled in.")
+
         write_lock = asyncio.Lock()
         sem = asyncio.Semaphore(CONCURRENCY)
         done_count = 0
@@ -292,6 +307,7 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
                     if row.get("extra_emails"):
                         row["email_confidence_extra"] = best_confidence(row["extra_emails"])
                     row["quality_score"] = score_business(row)
+                    annotate_row(row, profile, req.min_pitch_score)
 
                     async with write_lock:
                         done_count += 1
@@ -314,7 +330,12 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
         # with no email at all still need a score:
         for row in rows:
             row.setdefault("quality_score", score_business(row))
+            if not row.get("pitch_status"):
+                annotate_row(row, profile, req.min_pitch_score)
         _write_final_csv(job_id, rows)
+        if profile.ok:
+            n_ok = sum(1 for r in rows if r.get("pitch_status") == "eligible")
+            add_log(job_id, f"✉ {n_ok} of {len(rows)} businesses qualify for a pitch (min score {req.min_pitch_score}).")
 
         state["phase"] = "done"
         add_log(job_id, "🎉 All done — your results are ready to download.")

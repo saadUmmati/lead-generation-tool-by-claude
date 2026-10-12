@@ -31,6 +31,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from site_summary import SUMMARY_FIELDS, empty_summary, summarize_site
+
 CONCURRENCY = 8
 TIMEOUT = 8.0
 PER_BUSINESS_BUDGET = 25.0        # hard cap for the fast (no-JS) path
@@ -134,6 +136,15 @@ async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
     return None
 
 
+def _empty_result() -> dict:
+    result = {
+        "extra_emails": "", "email_sources": "", "facebook": "", "instagram": "",
+        "linkedin": "", "whatsapp": "", "x_twitter": "", "youtube": "", "tiktok": "",
+    }
+    result.update(empty_summary())
+    return result
+
+
 async def enrich_one_bounded(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dict,
                               browser_pool=None) -> dict:
     """Same as enrich_one, but guarantees this business can never stall the
@@ -143,25 +154,12 @@ async def enrich_one_bounded(client: httpx.AsyncClient, sem: asyncio.Semaphore, 
     try:
         return await asyncio.wait_for(enrich_one(client, sem, row, browser_pool), timeout=budget)
     except asyncio.TimeoutError:
-        return {
-            "extra_emails": "", "email_sources": "", "facebook": "", "instagram": "",
-            "linkedin": "", "whatsapp": "", "x_twitter": "", "youtube": "", "tiktok": "",
-        }
+        return _empty_result()
 
 
 async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dict,
                       browser_pool=None) -> dict:
-    result = {
-        "extra_emails": "",
-        "email_sources": "",
-        "facebook": "",
-        "instagram": "",
-        "linkedin": "",
-        "whatsapp": "",
-        "x_twitter": "",
-        "youtube": "",
-        "tiktok": "",
-    }
+    result = _empty_result()
 
     website = normalize_url(row.get("website", ""))
     if not website:
@@ -222,7 +220,14 @@ async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dic
         # pool was provided, render the homepage with real JavaScript and
         # try again - this catches sites whose contact info is injected
         # client-side and never appears in the plain HTML response.
-        if not all_emails and not socials and browser_pool is not None:
+        # Also render when the page is "thin" (likely JS-built) so the pitch
+        # writer gets real text. Never for blocked/parked pages: we do not
+        # try to get around bot protection.
+        summary = summarize_site(pages_to_check)
+        rendered_html = None
+        need_js = ((not all_emails and not socials) or summary["site_status"] == "thin") \
+            and summary["site_status"] != "blocked_or_parked"
+        if need_js and browser_pool is not None:
             rendered_html = await browser_pool.render(website)
             if rendered_html:
                 render_soup = BeautifulSoup(rendered_html, "html.parser")
@@ -243,6 +248,9 @@ async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dic
                     if addr not in all_emails:
                         all_emails[addr] = f"{website} (JS-rendered, Cloudflare-protected)"
 
+        if rendered_html:
+            summary = summarize_site({**pages_to_check, website + "#js": rendered_html}, rendered_js=True)
+        result.update(summary)
         result["extra_emails"] = "; ".join(sorted(all_emails.keys()))
         result["email_sources"] = "; ".join(f"{e} ({u})" for e, u in all_emails.items())
         for platform, link in socials.items():
@@ -261,7 +269,7 @@ async def run(input_path: str, output_path: str) -> None:
     extra_fields = [
         "extra_emails", "email_sources", "facebook", "instagram",
         "linkedin", "whatsapp", "x_twitter", "youtube", "tiktok",
-    ]
+    ] + SUMMARY_FIELDS
     for field in extra_fields:
         if field not in fieldnames:
             fieldnames.append(field)

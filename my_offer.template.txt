@@ -1,0 +1,81 @@
+# ====================================================================
+#  LEAD FINDER - MY OFFER FORM
+#  Fill this in ONCE. The tool reads it to write a tailored pitch for
+#  every business that qualifies.
+#
+#  HOW TO FILL IT
+#   - Replace each [ fill here ] with your own text, on the same line.
+#   - Lines starting with # are comments; they are ignored.
+#   - Lists are comma-separated:  dentists, clinics, orthodontists
+#   - Leave a field as [ fill here ] to skip it.
+#   - One offer is enough. To sell several things, copy an entire
+#     "=== OFFER ===" block below and fill it in again. The tool picks
+#     the best-matching offer for each business using MATCH_CATEGORIES
+#     and MATCH_KEYWORDS.
+#   - Be specific. "We build AI chatbots that book appointments" gives
+#     far better pitches than "We offer digital solutions".
+# ====================================================================
+
+
+=== SENDER ===
+# Who the pitch comes from (used in the sign-off and tone)
+YOUR_NAME: [ fill here ]
+YOUR_ROLE: [ fill here ]
+COMPANY_NAME: [ fill here ]
+COMPANY_WEBSITE: [ fill here ]
+REPLY_TO_EMAIL: [ fill here ]
+PHONE_OR_WHATSAPP: [ fill here ]
+COMPANY_ONE_LINER: [ fill here ]
+# Tone: friendly, professional, direct, casual, formal - pick one or two
+TONE: [ fill here ]
+# Language of the pitch. Write a language name, or AUTO to match the
+# business's country/website language.
+PITCH_LANGUAGE: AUTO
+
+# Compliance footer added to every email (many countries require an
+# opt-out and a sender identity on commercial email)
+OPT_OUT_LINE: If this isn't relevant, just reply "no thanks" and I won't contact you again.
+POSTAL_ADDRESS: [ fill here ]
+
+
+=== OFFER ===
+OFFER_NAME: [ fill here ]
+
+# What you sell, in 1-2 plain sentences
+WHAT_I_SELL: [ fill here ]
+
+# Which businesses this offer is FOR. The tool matches these against
+# each business's Google Maps category and its website text.
+MATCH_CATEGORIES: [ fill here ]
+MATCH_KEYWORDS: [ fill here ]
+
+# Skip businesses that look like this (e.g. large chains, franchises)
+SKIP_IF_KEYWORDS: [ fill here ]
+
+# The problem the business has that your offer fixes
+PROBLEM_I_SOLVE: [ fill here ]
+
+# The result they get. Real numbers beat adjectives.
+OUTCOME_FOR_THEM: [ fill here ]
+
+# Proof: past clients, results, case studies, years in business
+PROOF_POINTS: [ fill here ]
+
+# A low-friction hook (free audit, free demo, free trial, sample...)
+HOOK: [ fill here ]
+
+# What you want the reader to do next
+CALL_TO_ACTION: [ fill here ]
+
+# Optional: price range, if you want it mentioned
+PRICE_HINT: [ fill here ]
+
+# Words/claims the pitch must NEVER use (guarantees, competitors...)
+DONT_SAY: [ fill here ]
+
+# Anything else the writer should know
+EXTRA_NOTES: [ fill here ]
+
+
+# ---------- To add a second offer, copy from "=== OFFER ===" down to
+# ---------- here, paste it below, and fill it in.

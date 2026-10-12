@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+downloads/
+scraper/webdata/
+*.db
+# personal pitch form (copy my_offer.template.txt -> my_offer.txt)
+my_offer.txt
