@@ -1,5 +1,6 @@
 @echo off
 cd /d %~dp0
+if not exist .env if exist .env.example copy .env.example .env >nul
 call venv\Scripts\activate.bat
 
 echo Checking whether port 9000 is already in use by an old instance...

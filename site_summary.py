@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 SUMMARY_FIELDS = [
     "site_title", "site_description", "site_headings", "site_text_excerpt",
     "site_text_chars", "site_signals", "site_platform", "site_language",
-    "site_pages_read", "site_status",
+    "site_pages_read", "site_status", "site_fetch_note",
 ]
 
 MAX_EXCERPT = 1800
@@ -79,8 +79,31 @@ def empty_summary() -> dict:
     return d
 
 
+_TEMPLATE_RE = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.S)
+
+
 def _clean(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
+    """Collapses whitespace and removes unrendered template tags ({{ x }}) that
+    some JS-built sites leave in their HTML, so they never reach the AI."""
+    text = _TEMPLATE_RE.sub(" ", text or "")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+_ATTR_LEAK_RE = re.compile(r'\b[a-zA-Z_:-]{2,}="[^"]*"')
+SHINGLE = 6
+
+
+def _dedupe_repeats(text: str) -> str:
+    """Drops repeated runs of words (carousels, duplicated mobile/desktop blocks)."""
+    words = text.split()
+    seen, out = set(), []
+    for i, w in enumerate(words):
+        key = tuple(words[i:i + SHINGLE])
+        if len(key) == SHINGLE and key in seen:
+            continue
+        seen.add(key)
+        out.append(w)
+    return " ".join(out)
 
 
 def _visible_text(soup: BeautifulSoup) -> str:
@@ -92,7 +115,10 @@ def _visible_text(soup: BeautifulSoup) -> str:
         attrs = " ".join([" ".join(tag.get("class", []) or []), tag.get("id", "") or ""])
         if attrs.strip() and JUNK_HINT_RE.search(attrs):
             tag.decompose()
-    return _clean(soup.get_text(" "))
+    text = soup.get_text(" ")
+    if '="' in text:  # broken markup on the site leaking attributes into text
+        text = _ATTR_LEAK_RE.sub(" ", text)
+    return _clean(text)
 
 
 def _meta(soup: BeautifulSoup, *names: str) -> str:
@@ -130,7 +156,7 @@ def summarize_site(pages: dict, rendered_js: bool = False) -> dict:
         texts.append(_visible_text(soup))
 
     blob = " ".join(raw_all)
-    full_text = _clean(" ".join(texts))
+    full_text = _dedupe_repeats(_clean(" ".join(texts)))
     chars = len(full_text)
 
     signals = [name for name, needles in SIGNAL_RULES.items() if any(n in blob for n in needles)]

@@ -126,14 +126,27 @@ def extract_cf_protected_emails(html: str) -> set[str]:
     return found
 
 
-async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
+async def fetch_ex(client: httpx.AsyncClient, url: str):
+    """Returns (html | None, note). note says why a fetch failed, so the CSV
+    can show it. A 403/429 is respected: we report it and do not work around it."""
     try:
         resp = await client.get(url, timeout=TIMEOUT, follow_redirects=True)
-        if resp.status_code == 200 and "text/html" in resp.headers.get("content-type", ""):
-            return resp.text
-    except (httpx.HTTPError, httpx.InvalidURL):
-        return None
-    return None
+    except httpx.TimeoutException:
+        return None, "timeout"
+    except httpx.ConnectError as exc:
+        msg = str(exc).upper()
+        return None, "SSL certificate problem" if ("CERTIFICATE" in msg or "SSL" in msg) else "connection error"
+    except (httpx.HTTPError, httpx.InvalidURL) as exc:
+        return None, type(exc).__name__
+    if resp.status_code != 200:
+        return None, f"HTTP {resp.status_code}"
+    if "html" not in resp.headers.get("content-type", "").lower():
+        return None, "not an HTML page"
+    return resp.text, ""
+
+
+async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
+    return (await fetch_ex(client, url))[0]
 
 
 def _empty_result() -> dict:
@@ -145,6 +158,9 @@ def _empty_result() -> dict:
     return result
 
 
+RETRY_HTTP_NOTES = ("SSL certificate problem", "connection error")
+
+
 async def enrich_one_bounded(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dict,
                               browser_pool=None) -> dict:
     """Same as enrich_one, but guarantees this business can never stall the
@@ -154,7 +170,9 @@ async def enrich_one_bounded(client: httpx.AsyncClient, sem: asyncio.Semaphore, 
     try:
         return await asyncio.wait_for(enrich_one(client, sem, row, browser_pool), timeout=budget)
     except asyncio.TimeoutError:
-        return _empty_result()
+        res = _empty_result()
+        res["site_fetch_note"] = "stalled (time budget reached)"
+        return res
 
 
 async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dict,
@@ -166,8 +184,16 @@ async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dic
         return result
 
     async with sem:
-        base_html = await fetch(client, website)
+        base_html, note = await fetch_ex(client, website)
+        if base_html is None and website.startswith("https://") and note in RETRY_HTTP_NOTES:
+            alt = "http://" + website[len("https://"):]
+            base_html, note2 = await fetch_ex(client, alt)
+            if base_html is not None:
+                website, note = alt, ""
+            else:
+                note = f"{note}; http retry: {note2}"
         if base_html is None:
+            result["site_fetch_note"] = note
             return result
 
         pages_to_check = {website: base_html}

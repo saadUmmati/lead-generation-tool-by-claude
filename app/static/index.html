@@ -185,6 +185,41 @@
   .modal p, .modal li { font-size: 13.5px; color: #c7cede; line-height: 1.6; }
   .modal ul { padding-left: 18px; }
   .modal .close-btn { margin-top: 20px; background: var(--accent); }
+
+  /* ---- pitch panel ---- */
+  .btn-sm { width: auto; margin: 0; padding: 8px 14px; font-size: 13px; border-radius: 8px; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { background: rgba(79,140,255,0.12); border: 1px solid rgba(79,140,255,0.35); color: var(--accent);
+          padding: 6px 12px; border-radius: 999px; font-size: 12.5px; cursor: pointer; width: auto; margin: 0; font-weight: 500; }
+  .chip:hover { background: rgba(79,140,255,0.22); }
+  .link-btn { background: none; border: none; color: var(--accent); font-size: 13px; width: auto; margin: 10px 0 0; padding: 0; cursor: pointer; font-weight: 500; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin-top: 6px; }
+  .slider-row { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .notice { font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-top: 12px; line-height: 1.5; }
+  .notice.warn { background: rgba(245,190,70,0.1); border: 1px solid rgba(245,190,70,0.35); color: #f5be46; }
+  .notice.ok { background: rgba(52,211,153,0.08); border: 1px solid rgba(52,211,153,0.3); color: var(--accent2); }
+  .notice.bad { background: rgba(241,108,108,0.1); border: 1px solid rgba(241,108,108,0.3); color: var(--danger); }
+  .progress { height: 6px; background: #0f1420; border-radius: 99px; overflow: hidden; margin-top: 12px; }
+  .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .3s; }
+  .pitch-item { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; background: #121a2b; }
+  .pitch-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+  .pitch-title { font-weight: 600; font-size: 15px; }
+  .pitch-meta { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .badge.high { background: rgba(52,211,153,0.15); color: var(--accent2); }
+  .badge.medium { background: rgba(245,190,70,0.15); color: #f5be46; }
+  .badge.low { background: rgba(241,108,108,0.15); color: var(--danger); }
+  .tabs { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+  .tab { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; border-radius: 999px; font-size: 12.5px; width: auto; margin: 0; font-weight: 500; cursor: pointer; }
+  .tab.active { border-color: var(--accent); color: var(--text); background: rgba(79,140,255,0.12); }
+  .pitch-subject { width: 100%; margin-top: 10px; }
+  textarea.pitch-text { width: 100%; margin-top: 8px; min-height: 150px; background: #0f1420; color: var(--text); border: 1px solid var(--border);
+                        border-radius: 8px; padding: 10px 12px; font-family: inherit; font-size: 13.5px; line-height: 1.55; resize: vertical; }
+  .pitch-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .pitch-facts { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  #pitchCard { display: none; }
+  #pitchCard.show { display: block; }
 </style>
 </head>
 <body>
@@ -198,6 +233,9 @@
   <div class="card">
     <label for="businessType">Business type</label>
     <input type="text" id="businessType" placeholder="e.g. dentists, restaurants, software companies" />
+    <button type="button" class="link-btn" id="suggestBtn" onclick="loadSuggestions()" style="display:none;">💡 Suggest who to search for, based on my offer</button>
+    <div class="chips" id="suggestChips"></div>
+    <div class="hint" id="suggestNote"></div>
 
     <label for="location">Location</label>
     <input type="text" id="location" placeholder="e.g. Boston, USA" />
@@ -300,6 +338,25 @@
       <div class="download-row" id="downloadArea"></div>
     </div>
   </div>
+
+  <div class="card" id="pitchCard">
+    <h2 style="margin:0 0 4px;font-size:18px;">✉ Pitches</h2>
+    <div class="hint" style="margin-top:0;">Written by Gemini from each business's public details and your <code>my_offer.txt</code>. Nothing is ever sent automatically.</div>
+    <div id="offerNotice"></div>
+
+    <label for="minScore" style="margin-top:18px;">Only write pitches for businesses scoring at least:</label>
+    <input type="range" id="minScore" min="0" max="100" value="40" oninput="onSlider()" />
+    <div class="slider-row"><span id="minScoreVal">40</span><span id="previewText">…</span></div>
+    <div class="hint">A business also needs a readable website and a way to contact it (email, phone or social link). Higher score = fewer, better-documented prospects.</div>
+
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button type="button" id="writeBtn" class="btn-sm" style="flex:1;padding:12px;font-size:14px;" onclick="startPitches()">Write pitches</button>
+      <button type="button" id="pitchStopBtn" class="btn-sm btn-ghost" style="display:none;border-color:var(--danger);color:var(--danger);" onclick="stopPitches()">Stop</button>
+    </div>
+    <div class="progress" id="pitchProgress" style="display:none;"><div id="pitchBar"></div></div>
+    <div id="pitchStatusText" class="hint"></div>
+    <div id="pitchList"></div>
+  </div>
 </div>
 
 <div class="modal-overlay" id="helpModal">
@@ -338,6 +395,14 @@
     <h3>7. Everything is free &amp; local</h3>
     <p>No paid APIs, no accounts required, no data leaves your computer except to the websites/services
     being queried (Google Maps via gosom, and optionally OpenStreetMap).</p>
+
+    <h3>8. Pitches (Gemini)</h3>
+    <p>Fill in <code>my_offer.txt</code> once with what you sell and who it is for, and put your free Gemini key in
+    <code>.env</code>. After a search, use the slider to choose the minimum quality score, then click
+    <b>Write pitches</b>: each qualifying business gets a cold email, a short DM, a call opener and a follow-up,
+    built only from its public details. Review and edit them, then copy or open them in your own email app.
+    If Gemini's free daily limit is reached, the run pauses with everything saved; click the button again later
+    to continue. The email always ends with your opt-out line and postal address from the form.</p>
 
     <button class="close-btn" onclick="toggleHelp(false)">Close</button>
   </div>
@@ -392,6 +457,9 @@ async function startSearch() {
   document.getElementById('searchBtn').disabled = true;
   document.getElementById('status').classList.add('show');
   document.getElementById('downloadArea').innerHTML = '';
+  document.getElementById('pitchCard').classList.remove('show');
+  document.getElementById('pitchList').innerHTML = '';
+  clearInterval(pitchPoll);
   document.getElementById('logPanel').innerHTML = '';
   renderedLogCount = 0;
   document.getElementById('spinner').style.display = 'inline-block';
@@ -495,6 +563,7 @@ async function pollStatus(jobId) {
         document.getElementById('stopBtn').style.display = 'none';
         document.getElementById('downloadArea').innerHTML = downloadLinks(jobId);
         resetButton();
+        showPitchCard(jobId);
       } else if (status === 'failed') {
         clearInterval(pollTimer);
         document.getElementById('statusBadge').className = 'badge error';
@@ -528,6 +597,245 @@ async function pollStatus(jobId) {
     }
   }, 3000);
 }
+
+// ------------------------------------------------------------- pitches ----
+let pitchPoll = null;
+let previewTimer = null;
+let lastPitchDone = -1;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+async function initOffer() {
+  try {
+    const r = await fetch('/api/offer');
+    const o = await r.json();
+    document.getElementById('suggestBtn').style.display = o.ok ? 'inline-block' : 'none';
+    window._offerInfo = o;
+  } catch (e) { /* offer panel is optional */ }
+}
+
+async function loadSuggestions() {
+  const btn = document.getElementById('suggestBtn');
+  const chips = document.getElementById('suggestChips');
+  const note = document.getElementById('suggestNote');
+  btn.disabled = true; note.textContent = 'Thinking…'; chips.innerHTML = '';
+  try {
+    const r = await fetch('/api/offer/suggest', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Could not get suggestions.');
+    note.textContent = d.source === 'gemini'
+      ? 'Suggested by Gemini from your offer. Click one to fill the Business type box.'
+      : 'From the categories in your offer form' + (d.note ? ' (Gemini unavailable: ' + d.note + ')' : '') + '. Click one to use it.';
+    d.suggestions.forEach(s => {
+      const c = el('button', 'chip', s.business_type);
+      c.type = 'button'; c.title = s.why || '';
+      c.onclick = () => { document.getElementById('businessType').value = s.business_type; };
+      chips.appendChild(c);
+    });
+  } catch (e) { note.textContent = e.message; }
+  btn.disabled = false;
+}
+
+async function showPitchCard(jobId) {
+  const card = document.getElementById('pitchCard');
+  card.classList.add('show');
+  lastPitchDone = -1;
+  const notice = document.getElementById('offerNotice');
+  notice.innerHTML = '';
+  try {
+    const o = await (await fetch('/api/offer')).json();
+    if (!o.ok) {
+      notice.appendChild(el('div', 'notice bad', 'my_offer.txt is missing or has no filled-in OFFER section. ' + (o.problems || []).join('; ')));
+    } else {
+      notice.appendChild(el('div', 'notice ok', 'Offer form loaded: ' + (o.company || 'your company') + ' - ' + o.offers.length + ' offer(s): ' + o.offers.join(', ')));
+      (o.problems || []).forEach(p => notice.appendChild(el('div', 'notice warn', 'my_offer.txt: ' + p)));
+    }
+    if (!o.has_gemini_key) {
+      notice.appendChild(el('div', 'notice warn', 'No Gemini key found. Put GEMINI_API_KEY=... in the .env file next to run.bat and restart run.bat.'));
+    }
+  } catch (e) { /* ignore */ }
+  await updatePreview();
+  await refreshPitchList(jobId);
+  const st = await (await fetch(`/api/search/${jobId}/pitches/status`)).json();
+  if (st.phase === 'writing') { watchPitches(jobId); }
+}
+
+function onSlider() {
+  document.getElementById('minScoreVal').textContent = document.getElementById('minScore').value;
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(updatePreview, 250);
+}
+
+async function updatePreview() {
+  if (!currentJobId) return;
+  const v = document.getElementById('minScore').value;
+  try {
+    const r = await fetch(`/api/search/${currentJobId}/pitches/preview?min_score=${v}`);
+    const d = await r.json();
+    document.getElementById('previewText').textContent = d.offer_ok
+      ? `${d.eligible} to write` + (d.already_written ? `, ${d.already_written} already done` : '') + ` (of ${d.total})`
+      : 'offer form not ready';
+  } catch (e) { document.getElementById('previewText').textContent = ''; }
+}
+
+async function startPitches() {
+  if (!currentJobId) return;
+  const txt = document.getElementById('pitchStatusText');
+  txt.textContent = '';
+  try {
+    const r = await fetch(`/api/search/${currentJobId}/pitches/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ min_pitch_score: parseInt(document.getElementById('minScore').value, 10) })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || ('Request failed: ' + r.status));
+    watchPitches(currentJobId);
+  } catch (e) { txt.textContent = e.message; txt.style.color = 'var(--danger)'; }
+}
+
+async function stopPitches() {
+  if (!currentJobId) return;
+  await fetch(`/api/search/${currentJobId}/pitches/stop`, { method: 'POST' });
+}
+
+function watchPitches(jobId) {
+  clearInterval(pitchPoll);
+  document.getElementById('writeBtn').disabled = true;
+  document.getElementById('pitchStopBtn').style.display = 'inline-block';
+  document.getElementById('pitchProgress').style.display = 'block';
+  const txt = document.getElementById('pitchStatusText');
+  txt.style.color = '';
+  pitchPoll = setInterval(async () => {
+    try {
+      const s = await (await fetch(`/api/search/${jobId}/pitches/status`)).json();
+      const total = s.total || 0;
+      document.getElementById('pitchBar').style.width = total ? Math.round(100 * (s.done + s.failed) / total) + '%' : '0%';
+      if (s.done !== lastPitchDone) { lastPitchDone = s.done; refreshPitchList(jobId); updatePreview(); }
+      if (s.phase === 'writing') {
+        txt.textContent = `Writing pitches… ${s.done}/${total}` + (s.failed ? ` (${s.failed} failed)` : '');
+        return;
+      }
+      clearInterval(pitchPoll);
+      document.getElementById('writeBtn').disabled = false;
+      document.getElementById('pitchStopBtn').style.display = 'none';
+      const msgs = {
+        done: `Done: ${s.done} written` + (s.failed ? `, ${s.failed} failed` : '') + '.' + (s.message ? ' ' + s.message : ''),
+        paused: 'Paused: ' + s.message + ' Everything written so far is saved. Click "Write pitches" to continue.',
+        stopped: 'Stopped. Everything written so far is saved.',
+        failed: 'Could not continue: ' + s.message
+      };
+      txt.textContent = msgs[s.phase] || '';
+      txt.style.color = (s.phase === 'failed') ? 'var(--danger)' : (s.phase === 'paused' ? '#f5be46' : '');
+      refreshPitchList(jobId); updatePreview();
+    } catch (e) { clearInterval(pitchPoll); document.getElementById('writeBtn').disabled = false; }
+  }, 2000);
+}
+
+const CHANNELS = [['email', 'Email'], ['social_dm', 'Social DM'], ['call_opener', 'Call opener'], ['follow_up', 'Follow-up']];
+
+async function refreshPitchList(jobId) {
+  const box = document.getElementById('pitchList');
+  // keep any item the user is typing in
+  if (box.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return;
+  let items = [];
+  try { items = (await (await fetch(`/api/search/${jobId}/pitches`)).json()).pitches || []; } catch (e) { return; }
+  box.innerHTML = '';
+  items.forEach(p => box.appendChild(buildPitchItem(jobId, p)));
+}
+
+function buildPitchItem(jobId, p) {
+  const item = el('div', 'pitch-item');
+  const head = el('div', 'pitch-head');
+  const left = el('div');
+  left.appendChild(el('div', 'pitch-title', p.title));
+  left.appendChild(el('div', 'pitch-meta', [p.category, 'score ' + p.quality_score, p.offer && ('offer: ' + p.offer), p.emails].filter(Boolean).join(' · ')));
+  head.appendChild(left);
+  if (p.status === 'failed') {
+    head.appendChild(el('span', 'badge low', 'failed'));
+  } else {
+    head.appendChild(el('span', 'badge ' + (p.confidence || 'low'), (p.confidence || '?') + ' confidence' + (p.status === 'edited' ? ' · edited' : '')));
+  }
+  item.appendChild(head);
+  if (p.status === 'failed') {
+    item.appendChild(el('div', 'notice bad', p.error || 'Could not write this pitch.'));
+  }
+
+  const subject = el('input'); subject.type = 'text'; subject.className = 'pitch-subject'; subject.value = p.email_subject || ''; subject.placeholder = 'Email subject';
+  const area = el('textarea', 'pitch-text');
+  const values = { email: p.email_body, social_dm: p.social_dm, call_opener: p.call_opener, follow_up: p.follow_up };
+  let current = null;
+  const tabs = el('div', 'tabs');
+  const tabEls = {};
+  function show(ch) {
+    if (current) values[current] = area.value;
+    current = ch;
+    area.value = values[ch] || '';
+    subject.style.display = ch === 'email' ? 'block' : 'none';
+    Object.keys(tabEls).forEach(k => tabEls[k].classList.toggle('active', k === ch));
+  }
+  CHANNELS.forEach(([key, label]) => {
+    const t = el('button', 'tab', label); t.type = 'button'; t.onclick = () => show(key);
+    tabEls[key] = t; tabs.appendChild(t);
+  });
+  if (p.status !== 'failed') { item.appendChild(tabs); item.appendChild(subject); item.appendChild(area); }
+  show('email');
+
+  if (p.status !== 'failed') {
+    const actions = el('div', 'pitch-actions');
+    const copy = el('button', 'btn-sm btn-ghost', 'Copy'); copy.type = 'button';
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(area.value); copy.textContent = 'Copied'; setTimeout(() => copy.textContent = 'Copy', 1200); } catch (e) { area.select(); } };
+    const save = el('button', 'btn-sm btn-ghost', 'Save edits'); save.type = 'button';
+    save.onclick = async () => {
+      if (current) values[current] = area.value;
+      const r = await fetch(`/api/search/${jobId}/pitches/${p.idx}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_subject: subject.value, email_body: values.email, social_dm: values.social_dm, call_opener: values.call_opener, follow_up: values.follow_up }) });
+      save.textContent = r.ok ? 'Saved' : 'Could not save'; setTimeout(() => save.textContent = 'Save edits', 1500);
+    };
+    actions.appendChild(copy); actions.appendChild(save);
+    const firstEmail = (p.emails || '').split(/[;,]/)[0].trim();
+    if (firstEmail) {
+      const mail = el('button', 'btn-sm btn-ghost', 'Open in my email app'); mail.type = 'button';
+      mail.onclick = () => { if (current) values[current] = area.value; window.location.href = 'mailto:' + encodeURIComponent(firstEmail).replace('%40', '@') + '?subject=' + encodeURIComponent(subject.value) + '&body=' + encodeURIComponent(values.email); };
+      actions.appendChild(mail);
+    }
+    item.appendChild(actions);
+  }
+  const regen = el('button', 'btn-sm btn-ghost', p.status === 'failed' ? 'Try again' : 'Regenerate'); regen.type = 'button';
+  regen.onclick = async () => {
+    regen.disabled = true; regen.textContent = 'Writing…';
+    const r = await fetch(`/api/search/${jobId}/pitches/${p.idx}/regenerate`, { method: 'POST' });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); regen.textContent = d.detail || 'Failed'; regen.disabled = false; return; }
+    refreshPitchList(jobId);
+  };
+  const act2 = item.querySelector('.pitch-actions') || item.appendChild(el('div', 'pitch-actions'));
+  act2.appendChild(regen);
+
+  const info = [];
+  if (p.angle) info.push('Why this offer: ' + p.angle);
+  if (p.facts_used) info.push('Facts used: ' + p.facts_used);
+  if (p.flags) info.push('Check: ' + p.flags.replace(/_/g, ' '));
+  if (info.length) item.appendChild(el('div', 'pitch-facts', info.join('  |  ')));
+  return item;
+}
+
+initOffer();
+
+document.querySelectorAll(
+  '#businessType, #location, #maxResults, #language, #zoom, #radius, #depthOverride, #maxTimeOverride, #gridCellKm'
+).forEach(input => {
+  input.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      document.getElementById('searchBtn').click();
+    }
+  });
+});
+
 </script>
 </body>
 </html>

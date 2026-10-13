@@ -4,7 +4,7 @@ from site_summary import summarize_site
 from offer_profile import load_offer_profile
 from pitch_filter import is_eligible, match_offer, annotate_row
 
-LONG = "<html lang='en-GB'><head><title>Smile Dental</title><meta name='description' content='Family dentist'></head><body><nav>Menu</nav><h1>Family dentistry in Leeds</h1><p>" + ("We offer check-ups, hygiene and implants. " * 20) + "</p><a href='https://calendly.com/x'>Book online</a><footer>ignore me</footer></body></html>"
+LONG = "<html lang='en-GB'><head><title>Smile Dental</title><meta name='description' content='Family dentist'></head><body><nav>Menu</nav><h1>Family dentistry in Leeds</h1><p>" + " ".join(f"Service number {i} covers check-ups, hygiene and implants for patients." for i in range(20)) + "</p><a href='https://calendly.com/x'>Book online</a><footer>ignore me</footer></body></html>"
 
 def test_summary_ok():
     s = summarize_site({"https://a.com": LONG})
@@ -59,3 +59,33 @@ def test_annotate(tmp_path):
     r = annotate_row(_row(), pr, 40)
     assert r["pitch_status"] == "eligible" and r["pitch_offer"]
     assert annotate_row(_row(), None)["pitch_status"].startswith("skipped")
+
+
+def test_dedupe_and_attr_leak():
+    block = "Call Us Appointment Proudly Serving Patients in Two Prime locations. "
+    html = "<html><body><p>" + block * 8 + ("Real unique content about implants and braces here. " * 3) + '</p><p>class="home wp-singular page" > Skip</p></body></html>'
+    s = summarize_site({"u": html})
+    assert s["site_text_excerpt"].count("Proudly Serving") == 1
+    assert 'class="' not in s["site_text_excerpt"]
+
+
+def test_thin_site_with_good_metadata_is_usable():
+    thin = _row(site_status="thin", site_headings="Dental Care For All Ages | Book An Appointment | " * 4)
+    assert is_eligible(thin)[0]
+    o, s, why = match_offer(thin, OFFERS)
+    assert o is not None
+    pr_row = annotate_row(dict(thin), type("P", (), {"ok": True, "offers": OFFERS})(), 40)
+    assert pr_row["pitch_status"] == "eligible" and "[limited site info]" in pr_row["pitch_match_reason"]
+    assert not is_eligible(_row(site_status="thin", site_title="Home"))[0]
+
+
+def test_unreachable_reason_shown():
+    ok, reasons = is_eligible(_row(site_status="none", site_fetch_note="HTTP 403"))
+    assert not ok and "website not reachable (HTTP 403)" in reasons
+
+
+def test_template_placeholders_removed():
+    html = "<html><body><h1>{{ fTitle }}</h1><h2>Our implants</h2><p>{{ t.name }} " + " ".join(f"Real sentence {i} about dental care and treatments." for i in range(30)) + "</p></body></html>"
+    s = summarize_site({"u": html})
+    assert "{{" not in s["site_headings"] and "{{" not in s["site_text_excerpt"]
+    assert s["site_headings"] == "Our implants"

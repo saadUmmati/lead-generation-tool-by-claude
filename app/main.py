@@ -33,6 +33,10 @@ from pydantic import BaseModel
 from enrich import enrich_one_bounded, CONCURRENCY
 from site_summary import SUMMARY_FIELDS
 from offer_profile import load_offer_profile
+from env_loader import load_env
+from gemini_client import GeminiClient, GeminiError
+import pitch_runner
+import pitch_writer
 from pitch_filter import annotate_row
 from validate import best_confidence
 from scoring import score_business
@@ -47,7 +51,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Lead Finder")
 
-BUILD_TAG = "2026-10-12-d1"
+BUILD_TAG = "2026-10-13-e1"
 print("=" * 60)
 print(f"  LEAD FINDER BACKEND STARTING - build {BUILD_TAG}")
 print("=" * 60)
@@ -84,9 +88,10 @@ FIELDNAMES = [
     "quality_score", "source", "review_rating", "review_count",
     "latitude", "longitude", "google_maps_link",
     "pitch_status", "pitch_offer", "pitch_match_score", "pitch_match_reason",
-] + SUMMARY_FIELDS
+] + SUMMARY_FIELDS + pitch_writer.PITCH_COLUMNS
 
 OFFER_PATH = os.path.join(os.path.dirname(__file__), "..", "my_offer.txt")
+load_env(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 
 def add_log(job_id: str, message: str) -> None:
@@ -455,6 +460,209 @@ async def download(job_id: str, format: str = "csv"):
         )
 
     raise HTTPException(status_code=400, detail="format must be csv, xlsx, or json")
+
+
+
+# ------------------------------------------------------------ pitch engine --
+
+pitch_states: dict[str, dict] = {}
+pitch_tasks: dict[str, asyncio.Task] = {}
+_gemini: dict = {"key": None, "client": None}
+
+PITCH_FIELDS = ["email_subject", "email_body", "social_dm", "call_opener", "follow_up"]
+
+
+def _gemini_client() -> GeminiClient:
+    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=400,
+            detail="GEMINI_API_KEY is not set. Create a free key at aistudio.google.com/app/apikey, "
+                   "put GEMINI_API_KEY=your_key in the .env file next to run.bat, then restart run.bat.")
+    if _gemini["client"] is None or _gemini["key"] != key:
+        interval = float(os.environ.get("GEMINI_MIN_INTERVAL_SECONDS", "6") or 6)
+        _gemini["client"] = GeminiClient(key, model=os.environ.get("GEMINI_MODEL") or None, min_interval=interval)
+        _gemini["key"] = key
+    return _gemini["client"]
+
+
+def _csv_path(job_id: str) -> str:
+    if not job_id.replace("-", "").isalnum():
+        raise HTTPException(status_code=400, detail="Bad job id.")
+    return os.path.join(DOWNLOAD_DIR, f"{job_id}.csv")
+
+
+def _load_rows(job_id: str) -> list[dict]:
+    path = _csv_path(job_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No results found for this search.")
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def _require_search_finished(job_id: str) -> None:
+    state = jobs.get(job_id)
+    if state and state["phase"] in ("discovering", "enriching"):
+        raise HTTPException(status_code=409, detail="The search is still running - wait for it to finish or stop it first.")
+
+
+def _require_offer():
+    profile = load_offer_profile(OFFER_PATH)
+    if not profile.ok:
+        raise HTTPException(status_code=400, detail="my_offer.txt is missing or has no filled-in OFFER section. " + "; ".join(profile.problems))
+    return profile
+
+
+@app.get("/api/offer")
+async def offer_status():
+    profile = load_offer_profile(OFFER_PATH)
+    return {
+        "ok": profile.ok,
+        "offers": [o.get("OFFER_NAME", "") for o in profile.offers],
+        "company": profile.sender.get("COMPANY_NAME", ""),
+        "problems": profile.problems,
+        "has_gemini_key": bool((os.environ.get("GEMINI_API_KEY") or "").strip()),
+    }
+
+
+@app.post("/api/offer/suggest")
+async def suggest_searches():
+    profile = _require_offer()
+    if not (os.environ.get("GEMINI_API_KEY") or "").strip():
+        return {"source": "offer form", "suggestions": pitch_writer.fallback_suggestions(profile)}
+    try:
+        items = await pitch_writer.suggest_searches(_gemini_client(), profile)
+        return {"source": "gemini", "suggestions": items}
+    except (GeminiError, pitch_writer.PitchError) as e:
+        return {"source": "offer form", "note": str(e), "suggestions": pitch_writer.fallback_suggestions(profile)}
+
+
+@app.get("/api/search/{job_id}/pitches/preview")
+async def pitch_preview(job_id: str, min_score: int = 40):
+    rows = _load_rows(job_id)
+    profile = load_offer_profile(OFFER_PATH)
+    if not profile.ok:
+        return {"offer_ok": False, "total": len(rows), "eligible": 0, "already_written": 0}
+    return {"offer_ok": True, **pitch_runner.preview(rows, profile, min_score)}
+
+
+class PitchStart(BaseModel):
+    min_pitch_score: int = 40
+
+
+@app.post("/api/search/{job_id}/pitches/start")
+async def pitch_start(job_id: str, body: PitchStart):
+    _require_search_finished(job_id)
+    existing = pitch_tasks.get(job_id)
+    if existing and not existing.done():
+        raise HTTPException(status_code=409, detail="Pitches are already being written for this search.")
+    profile = _require_offer()
+    client = _gemini_client()
+    rows = _load_rows(job_id)
+    state = {"phase": "writing", "total": 0, "done": 0, "failed": 0, "message": "", "logs": []}
+    pitch_states[job_id] = state
+
+    def flush() -> None:
+        _save_rows(job_id, rows)
+
+    pitch_tasks[job_id] = asyncio.create_task(
+        pitch_runner.run(rows, profile, client, state, body.min_pitch_score, flush, state["logs"].append))
+    return {"started": True}
+
+
+@app.get("/api/search/{job_id}/pitches/status")
+async def pitch_status(job_id: str):
+    state = pitch_states.get(job_id)
+    if not state:
+        return {"phase": "idle", "total": 0, "done": 0, "failed": 0, "message": "", "logs": []}
+    return state
+
+
+@app.post("/api/search/{job_id}/pitches/stop")
+async def pitch_stop(job_id: str):
+    task = pitch_tasks.get(job_id)
+    if task and not task.done():
+        task.cancel()
+        return {"status": "stopping"}
+    return {"status": "idle"}
+
+
+@app.get("/api/search/{job_id}/pitches")
+async def pitch_list(job_id: str):
+    rows = _load_rows(job_id)
+    out = []
+    for i, r in enumerate(rows):
+        if r.get("pitch_status") in ("written", "edited", "failed"):
+            out.append({
+                "idx": i,
+                "title": r.get("title", ""),
+                "category": r.get("category", ""),
+                "website": r.get("website", ""),
+                "emails": r.get("emails", "") or r.get("extra_emails", ""),
+                "phone": r.get("phone", ""),
+                "quality_score": r.get("quality_score", ""),
+                "status": r.get("pitch_status", ""),
+                "offer": r.get("pitch_offer", ""),
+                "angle": r.get("pitch_angle", ""),
+                "confidence": r.get("pitch_confidence", ""),
+                "facts_used": r.get("pitch_facts_used", ""),
+                "flags": r.get("pitch_flags", ""),
+                "error": r.get("pitch_error", ""),
+                **{f: r.get(f"pitch_{f}", "") for f in PITCH_FIELDS},
+            })
+    return {"pitches": out}
+
+
+class PitchEdit(BaseModel):
+    email_subject: str | None = None
+    email_body: str | None = None
+    social_dm: str | None = None
+    call_opener: str | None = None
+    follow_up: str | None = None
+
+
+@app.put("/api/search/{job_id}/pitches/{idx}")
+async def pitch_edit(job_id: str, idx: int, body: PitchEdit):
+    _require_search_finished(job_id)
+    rows = _load_rows(job_id)
+    if not 0 <= idx < len(rows):
+        raise HTTPException(status_code=404, detail="No such business.")
+    for f in PITCH_FIELDS:
+        val = getattr(body, f)
+        if val is not None:
+            rows[idx][f"pitch_{f}"] = val
+    rows[idx]["pitch_status"] = "edited"
+    _save_rows(job_id, rows)
+    return {"status": "edited"}
+
+
+@app.post("/api/search/{job_id}/pitches/{idx}/regenerate")
+async def pitch_regenerate(job_id: str, idx: int):
+    _require_search_finished(job_id)
+    running = pitch_tasks.get(job_id)
+    if running and not running.done():
+        raise HTTPException(status_code=409, detail="Pitches are being written right now - stop that first.")
+    profile = _require_offer()
+    client = _gemini_client()
+    rows = _load_rows(job_id)
+    if not 0 <= idx < len(rows):
+        raise HTTPException(status_code=404, detail="No such business.")
+    try:
+        await pitch_runner.write_one(client, rows[idx], profile)
+    except GeminiError as e:
+        raise HTTPException(status_code=502, detail=e.message)
+    except pitch_writer.PitchError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    _save_rows(job_id, rows)
+    return {"status": "written"}
+
+
+def _save_rows(job_id: str, rows: list[dict]) -> None:
+    with open(_csv_path(job_id), "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=FIELDNAMES, extrasaction="ignore")
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
 
 
 # Serve the frontend last, so /api/* routes above take priority.

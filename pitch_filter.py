@@ -37,13 +37,30 @@ def contact_route(row: dict) -> str:
     return ""
 
 
+LIMITED_MIN = 150  # title + description + headings chars that make a thin site usable
+
+
+def site_usable(row: dict) -> bool:
+    status = row.get("site_status")
+    if status == "ok":
+        return True
+    if status == "thin":
+        meta = sum(len(str(row.get(k) or "")) for k in ("site_title", "site_description", "site_headings"))
+        return meta >= LIMITED_MIN
+    return False
+
+
 def is_eligible(row: dict, min_score: int = 40):
     """Returns (eligible: bool, reasons: list[str])."""
     reasons = []
     if not row.get("website"):
         reasons.append("no website")
-    elif row.get("site_status") != "ok":
-        reasons.append("website text not readable")
+    elif not site_usable(row):
+        note = row.get("site_fetch_note")
+        if row.get("site_status") == "none" and note:
+            reasons.append(f"website not reachable ({note})")
+        else:
+            reasons.append("website text not readable")
     if not contact_route(row):
         reasons.append("no contact route")
     try:
@@ -144,5 +161,5 @@ def annotate_row(row: dict, profile, min_score: int = 40) -> dict:
     row["pitch_status"] = "eligible"
     row["pitch_offer"] = offer.get("OFFER_NAME", "")
     row["pitch_match_score"] = score
-    row["pitch_match_reason"] = why
+    row["pitch_match_reason"] = why + (" [limited site info]" if row.get("site_status") == "thin" else "")
     return row

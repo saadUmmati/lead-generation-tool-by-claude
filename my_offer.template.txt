@@ -44,6 +44,9 @@ OFFER_NAME: [ fill here ]
 # What you sell, in 1-2 plain sentences
 WHAT_I_SELL: [ fill here ]
 
+# Who it is for, in plain words (also used by the "Suggest who to search for" button)
+TARGET_CUSTOMERS: [ fill here ]
+
 # Which businesses this offer is FOR. The tool matches these against
 # each business's Google Maps category and its website text.
 MATCH_CATEGORIES: [ fill here ]
