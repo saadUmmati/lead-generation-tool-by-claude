@@ -538,11 +538,11 @@ async def suggest_searches():
 
 
 @app.get("/api/search/{job_id}/pitches/preview")
-async def pitch_preview(job_id: str, min_score: int = 40):
+async def pitch_preview(job_id: str, min_score: int = 0):
     rows = _load_rows(job_id)
     profile = load_offer_profile(OFFER_PATH)
     if not profile.ok:
-        return {"offer_ok": False, "total": len(rows), "eligible": 0, "already_written": 0}
+        return {"offer_ok": False, "total": len(rows), "eligible": 0, "already_written": 0, "eligible_scores": [], "blockers": {}}
     return {"offer_ok": True, **pitch_runner.preview(rows, profile, min_score)}
 
 

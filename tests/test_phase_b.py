@@ -187,3 +187,26 @@ def test_suggestions(tmp_path):
     assert [s["business_type"] for s in fallback_suggestions(prof)] == ["hotel", "tour operator"]
     c = client([(200, ok_body({"suggestions": [{"business_type": "Wedding planners", "why": "guest shuttles"}]}), {})], models=["gemini-3.8-flash"])
     assert arun(suggest_searches(c, prof))[0]["business_type"] == "Wedding planners"
+
+
+def test_preview_explains_why_nobody_qualifies(tmp_path):
+    prof = load_offer_profile(os.path.join(os.path.dirname(__file__), "..", "my_offer.txt"))
+    scores = [45, 73, 87, 90, 60, 53, 53, 65, 87, 77, 60, 45]
+    dentists = [dict(ROW, title=f"Dentist {i}", category="Dental clinic", quality_score=s, site_title="Smile Dental", site_description="Dental implants and braces", site_text_excerpt="implants braces")
+                for i, s in enumerate(scores)]
+    d = preview(dentists, prof, 40)
+    assert d["eligible"] == 0 and d["eligible_scores"] == []
+    assert d["blockers"] == {"doesn't match any offer in my_offer.txt": 12}
+    hotels = [dict(ROW, title=f"Hotel {i}", category="Hotel", quality_score=s) for i, s in enumerate(scores)]
+    h = preview(hotels, prof, 70)
+    assert h["eligible_scores"] == sorted(scores) and h["eligible"] == sum(1 for s in scores if s >= 70)
+    assert preview(hotels, prof, 90)["eligible"] == 1
+
+
+def test_preview_blocker_buckets(tmp_path):
+    prof = _profile(tmp_path)
+    rows = [dict(ROW, website=""), dict(ROW, site_status="none", site_fetch_note="HTTP 403"),
+            dict(ROW, emails="", email_confidence_primary="", phone=""), dict(ROW)]
+    d = preview(rows, prof, 40)
+    assert d["blockers"] == {"no website": 1, "website blocked or unreachable": 1, "no email, phone or social link": 1}
+    assert d["eligible"] == 1

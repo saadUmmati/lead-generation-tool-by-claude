@@ -16,18 +16,54 @@ DONE_STATUSES = ("written", "edited")
 MAX_CONSECUTIVE_FAILURES = 5
 
 
+def _bucket(reason: str):
+    """Maps an eligibility reason to a plain-language group (None = ignore)."""
+    r = reason.strip().lower()
+    if r.startswith("score "):
+        return None
+    if r.startswith("website not reachable"):
+        return "website blocked or unreachable"
+    if r.startswith("website text"):
+        return "website has too little readable text"
+    if r == "no website":
+        return "no website"
+    if r == "no contact route":
+        return "no email, phone or social link"
+    if r.startswith("no offer matched"):
+        return "doesn't match any offer in my_offer.txt"
+    return reason.strip()
+
+
 def preview(rows: list, profile, min_score: int) -> dict:
-    """Counts who would get a pitch at this minimum score (no changes made)."""
-    eligible = written = 0
+    """Who would get a pitch, plus what the UI needs to recount instantly while
+    the slider moves: the scores of everyone who passes every rule except the
+    score cutoff, and how many are held back by each other reason."""
+    written = 0
+    scores, blockers = [], {}
     for r in rows:
         if r.get("pitch_status") in DONE_STATUSES:
             written += 1
             continue
         probe = dict(r)
-        annotate_row(probe, profile, min_score)
-        if probe["pitch_status"] == "eligible":
-            eligible += 1
-    return {"total": len(rows), "eligible": eligible, "already_written": written}
+        annotate_row(probe, profile, 0)  # score gate off: score is applied by the slider
+        status = probe.get("pitch_status", "")
+        if status == "eligible":
+            try:
+                scores.append(int(float(r.get("quality_score") or 0)))
+            except (TypeError, ValueError):
+                scores.append(0)
+        else:
+            for reason in status.replace("skipped:", "", 1).split(";"):
+                b = _bucket(reason)
+                if b:
+                    blockers[b] = blockers.get(b, 0) + 1
+    return {
+        "total": len(rows),
+        "eligible": sum(1 for s in scores if s >= min_score),
+        "already_written": written,
+        "eligible_scores": sorted(scores),
+        "blockers": dict(sorted(blockers.items(), key=lambda kv: -kv[1])),
+    }
 
 
 def pick_offer(row: dict, profile) -> dict:

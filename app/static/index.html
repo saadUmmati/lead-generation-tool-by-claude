@@ -347,6 +347,7 @@
     <label for="minScore" style="margin-top:18px;">Only write pitches for businesses scoring at least:</label>
     <input type="range" id="minScore" min="0" max="100" value="40" oninput="onSlider()" />
     <div class="slider-row"><span id="minScoreVal">40</span><span id="previewText">…</span></div>
+    <div id="previewWhy"></div>
     <div class="hint">A business also needs a readable website and a way to contact it (email, phone or social link). Higher score = fewer, better-documented prospects.</div>
 
     <div style="display:flex;gap:10px;margin-top:16px;">
@@ -667,20 +668,42 @@ async function showPitchCard(jobId) {
 
 function onSlider() {
   document.getElementById('minScoreVal').textContent = document.getElementById('minScore').value;
-  clearTimeout(previewTimer);
-  previewTimer = setTimeout(updatePreview, 250);
+  renderPreview();   // instant: recounts from data already loaded, no network call
+}
+
+function renderPreview() {
+  const d = window._preview;
+  const text = document.getElementById('previewText');
+  const why = document.getElementById('previewWhy');
+  why.innerHTML = '';
+  if (!d) { text.textContent = ''; return; }
+  if (!d.offer_ok) { text.textContent = 'offer form not ready'; return; }
+  const min = parseInt(document.getElementById('minScore').value, 10);
+  const scores = d.eligible_scores || [];
+  const n = scores.filter(s => s >= min).length;
+  text.textContent = `${n} to write` + (d.already_written ? `, ${d.already_written} already done` : '') + ` (of ${d.total})`;
+  text.style.color = n ? 'var(--accent2)' : '#f5be46';
+  if (!n && scores.length) {
+    why.appendChild(el('div', 'notice warn', `${scores.length} business(es) fit your offer but score below ${min}. Lower the slider to ${scores[scores.length - 1]} or less to include the best of them.`));
+  }
+  const b = d.blockers || {};
+  const parts = Object.keys(b).map(k => `${b[k]} × ${k}`);
+  if (parts.length) {
+    const box = el('div', 'hint', 'Not eligible regardless of score: ' + parts.join(' · '));
+    why.appendChild(box);
+  }
+  if (!scores.length && (b["doesn't match any offer in my_offer.txt"] || 0) > 0) {
+    why.appendChild(el('div', 'notice warn', "None of these businesses fit an offer in my_offer.txt. Search for one of the business types your offers target (use the 'Suggest who to search for' button), or add an offer for this type."));
+  }
 }
 
 async function updatePreview() {
   if (!currentJobId) return;
-  const v = document.getElementById('minScore').value;
   try {
-    const r = await fetch(`/api/search/${currentJobId}/pitches/preview?min_score=${v}`);
-    const d = await r.json();
-    document.getElementById('previewText').textContent = d.offer_ok
-      ? `${d.eligible} to write` + (d.already_written ? `, ${d.already_written} already done` : '') + ` (of ${d.total})`
-      : 'offer form not ready';
-  } catch (e) { document.getElementById('previewText').textContent = ''; }
+    const r = await fetch(`/api/search/${currentJobId}/pitches/preview`);
+    window._preview = await r.json();
+  } catch (e) { window._preview = null; }
+  renderPreview();
 }
 
 async function startPitches() {
@@ -824,18 +847,6 @@ function buildPitchItem(jobId, p) {
 }
 
 initOffer();
-
-document.querySelectorAll(
-  '#businessType, #location, #maxResults, #language, #zoom, #radius, #depthOverride, #maxTimeOverride, #gridCellKm'
-).forEach(input => {
-  input.addEventListener('keydown', function(event) {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      document.getElementById('searchBtn').click();
-    }
-  });
-});
-
 </script>
 </body>
 </html>

@@ -24,7 +24,7 @@
 YOUR_NAME: Muhammad Saad Ahmed
 YOUR_ROLE: Managing Director
 COMPANY_NAME: UK Drive Car Hire
-COMPANY_WEBSITE: https://www.ukdrivecarhire.example
+COMPANY_WEBSITE: https://www.hertz.co.uk/p/car-hire/uk
 REPLY_TO_EMAIL: msaadisiddiqui@gmail.com
 PHONE_OR_WHATSAPP: +44 7700 900123
 COMPANY_ONE_LINER: UK Drive Car Hire provides affordable, reliable self-drive car and van rental services across the United Kingdom for individuals, families, tourists, and businesses.
@@ -102,7 +102,7 @@ PROBLEM_I_SOLVE: Busy periods, breakdowns or one-off jobs can leave a business s
 OUTCOME_FOR_THEM: You can cover extra demand with a short-term van or car and know the rental requirements and cost basis before you commit.
 PROOF_POINTS: Fictional example company established in 2021, offering a selection of 50+ vehicles, serving customers across London and nearby areas, and providing flexible daily, weekly, and monthly rental options.
 HOOK: A free, no-obligation quote for a van for your next busy week, so you have a ready option when you need cover.
-CALL_TO_ACTION: Send us the dates, van size and collection location you would typically need and we will reply with a personalised quote.
+CALL_TO_ACTION: Send us the dates, van size and collection location you would typically need and we will reply with a personalized quote.
 PRICE_HINT: Example prices start from £25 per day for economy cars and £45 per day for vans, subject to availability, rental duration, insurance, and other applicable charges.
 DONT_SAY: Guaranteed vehicle availability, guaranteed lowest prices, unverified customer reviews, fabricated testimonials, misleading insurance claims, hidden fees, or claims that all rentals include unlimited mileage or free delivery.
 EXTRA_NOTES: Use British English. Prices and availability depend on the vehicle, dates, location and rental terms. Pitch the business as a potential partner or customer, not as a driver renting a car for themselves.
