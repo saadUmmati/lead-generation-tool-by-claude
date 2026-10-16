@@ -33,8 +33,10 @@ from pydantic import BaseModel
 from enrich import enrich_one_bounded, CONCURRENCY
 from site_summary import SUMMARY_FIELDS
 from offer_profile import load_offer_profile
+import offer_profile
 from env_loader import load_env
-from gemini_client import GeminiClient, GeminiError
+from gemini_client import GeminiError
+import llm_client
 import pitch_runner
 import pitch_writer
 from pitch_filter import annotate_row
@@ -51,7 +53,7 @@ os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
 app = FastAPI(title="Lead Finder")
 
-BUILD_TAG = "2026-10-13-e1"
+BUILD_TAG = "2026-10-15-f1"
 print("=" * 60)
 print(f"  LEAD FINDER BACKEND STARTING - build {BUILD_TAG}")
 print("=" * 60)
@@ -98,6 +100,11 @@ def add_log(job_id: str, message: str) -> None:
     jobs[job_id]["logs"].append(message)
 
 
+class OfferForm(BaseModel):
+    sender: dict[str, str] = {}
+    offer: dict[str, str] = {}
+
+
 class SearchRequest(BaseModel):
     business_type: str
     location: str
@@ -114,6 +121,9 @@ class SearchRequest(BaseModel):
     grid_cell_km: float = 10.0
     use_js_fallback: bool = False
     min_pitch_score: int = 40
+    auto_pitch: bool = False   # one-run mode: write pitches right after enrichment
+    offer_form: OfferForm | None = None
+    save_offer_as_default: bool = False
 
 
 def estimate_depth(max_results: int) -> int:
@@ -285,7 +295,7 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
             if not started:
                 browser_pool = None
 
-        profile = load_offer_profile(OFFER_PATH)
+        profile = load_offer_profile(_offer_path(job_id))
         if profile.ok:
             add_log(job_id, f"📝 Offer form loaded: {len(profile.offers)} offer(s).")
             for prob in profile.problems:
@@ -342,6 +352,9 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
             n_ok = sum(1 for r in rows if r.get("pitch_status") == "eligible")
             add_log(job_id, f"✉ {n_ok} of {len(rows)} businesses qualify for a pitch (min score {req.min_pitch_score}).")
 
+        if req.auto_pitch:
+            await _auto_pitch(job_id, rows, profile, req.min_pitch_score)
+
         state["phase"] = "done"
         add_log(job_id, "🎉 All done — your results are ready to download.")
 
@@ -361,11 +374,42 @@ async def _run_pipeline(job_id: str, req: SearchRequest) -> None:
         add_log(job_id, f"❌ Error: {e}")
 
 
+async def _auto_pitch(job_id: str, rows: list[dict], profile, min_score: int) -> None:
+    """One-run mode: write pitches straight after enrichment. Never raises for AI
+    problems - whatever was written is saved and the CSV is still delivered."""
+    state = jobs[job_id]
+    if not profile.ok:
+        add_log(job_id, "✉ Pitch step skipped: the offer details are missing or incomplete.")
+        return
+    try:
+        client = _llm_client()
+    except HTTPException as e:
+        add_log(job_id, f"✉ Pitch step skipped: {e.detail}")
+        return
+    state["phase"] = "pitching"
+    pstate = {"phase": "writing", "total": 0, "done": 0, "failed": 0, "message": "", "logs": []}
+    pitch_states[job_id] = pstate
+
+    def flush() -> None:
+        _write_final_csv(job_id, rows)
+
+    await pitch_runner.run(rows, profile, client, pstate, min_score, flush, lambda m: add_log(job_id, m))
+    if pstate["phase"] in ("paused", "failed"):
+        add_log(job_id, f"⚠ Pitch writing stopped early ({pstate['message']}). The CSV below contains the "
+                        f"{pstate['done']} pitch(es) written so far; click 'Write pitches' later to finish the rest.")
+
+
 # --------------------------------------------------------------- endpoints --
 
 @app.post("/api/search")
 async def create_search(req: SearchRequest):
     job_id = str(uuid.uuid4())
+    if req.auto_pitch:
+        _llm_client()  # fail fast (HTTP 400) if no AI key is configured, before a long search starts
+    if req.offer_form is not None:
+        _write_offer_form(req.offer_form, os.path.join(DOWNLOAD_DIR, f"{job_id}.offer.txt"))
+        if req.save_offer_as_default:
+            _write_offer_form(req.offer_form, OFFER_PATH)
     jobs[job_id] = {
         "phase": "discovering",
         "logs": [],
@@ -396,6 +440,7 @@ async def get_status(job_id: str):
         "enrichment_done": state["enrich_done"],
         "enrichment_total": state["enrich_total"],
         "error_detail": state.get("error"),
+        "pitch": {k: pitch_states[job_id].get(k) for k in ("phase", "total", "done", "failed")} if job_id in pitch_states else None,
         "logs": state["logs"],
     }
 
@@ -420,13 +465,11 @@ def _rows_from_csv(job_id: str) -> list[dict]:
 
 @app.get("/api/search/{job_id}/download")
 async def download(job_id: str, format: str = "csv"):
-    state = jobs.get(job_id)
-    if not state or state["phase"] not in ("done", "stopped", "failed"):
-        raise HTTPException(status_code=409, detail="Job isn't finished or stopped yet.")
-
+    # Works at ANY time the CSV exists (also while pitches are still being written or
+    # after a daily-limit pause): the CSV is re-saved after every single pitch.
     path = os.path.join(DOWNLOAD_DIR, f"{job_id}.csv")
     if not os.path.exists(path):
-        raise HTTPException(status_code=409, detail="No results were produced.")
+        raise HTTPException(status_code=409, detail="No results were produced yet.")
 
     if format == "csv":
         return FileResponse(path, filename="leads.csv", media_type="text/csv")
@@ -467,23 +510,7 @@ async def download(job_id: str, format: str = "csv"):
 
 pitch_states: dict[str, dict] = {}
 pitch_tasks: dict[str, asyncio.Task] = {}
-_gemini: dict = {"key": None, "client": None}
-
 PITCH_FIELDS = ["email_subject", "email_body", "social_dm", "call_opener", "follow_up"]
-
-
-def _gemini_client() -> GeminiClient:
-    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-    if not key:
-        raise HTTPException(
-            status_code=400,
-            detail="GEMINI_API_KEY is not set. Create a free key at aistudio.google.com/app/apikey, "
-                   "put GEMINI_API_KEY=your_key in the .env file next to run.bat, then restart run.bat.")
-    if _gemini["client"] is None or _gemini["key"] != key:
-        interval = float(os.environ.get("GEMINI_MIN_INTERVAL_SECONDS", "6") or 6)
-        _gemini["client"] = GeminiClient(key, model=os.environ.get("GEMINI_MODEL") or None, min_interval=interval)
-        _gemini["key"] = key
-    return _gemini["client"]
 
 
 def _csv_path(job_id: str) -> str:
@@ -502,15 +529,42 @@ def _load_rows(job_id: str) -> list[dict]:
 
 def _require_search_finished(job_id: str) -> None:
     state = jobs.get(job_id)
-    if state and state["phase"] in ("discovering", "enriching"):
+    if state and state["phase"] in ("discovering", "enriching", "pitching"):
         raise HTTPException(status_code=409, detail="The search is still running - wait for it to finish or stop it first.")
 
 
-def _require_offer():
-    profile = load_offer_profile(OFFER_PATH)
+def _require_offer(job_id: str | None = None):
+    profile = load_offer_profile(_offer_path(job_id) if job_id else OFFER_PATH)
     if not profile.ok:
         raise HTTPException(status_code=400, detail="my_offer.txt is missing or has no filled-in OFFER section. " + "; ".join(profile.problems))
     return profile
+
+
+_llm: dict = {"sig": None, "client": None}
+
+
+def _llm_signature() -> tuple:
+    keys = ("LLM_PROVIDER", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_MIN_INTERVAL_SECONDS",
+            "GROQ_API_KEY", "GROQ_MODEL", "GROQ_MIN_INTERVAL_SECONDS")
+    return tuple((os.environ.get(k) or "").strip() for k in keys)
+
+
+def _llm_client():
+    """The AI client (Gemini and/or Groq with automatic fallback), rebuilt if .env values change."""
+    sig = _llm_signature()
+    if _llm["client"] is None or _llm["sig"] != sig:
+        client = llm_client.build_client()
+        if client is None:
+            raise HTTPException(
+                status_code=400,
+                detail="No AI key is set. Add GEMINI_API_KEY (aistudio.google.com/app/apikey) and/or "
+                       "GROQ_API_KEY (console.groq.com/keys) to the .env file next to run.bat, then restart run.bat.")
+        _llm["client"], _llm["sig"] = client, sig
+    return _llm["client"]
+
+
+def _has_llm_key() -> bool:
+    return bool(llm_client.configured_providers())
 
 
 @app.get("/api/offer")
@@ -521,26 +575,67 @@ async def offer_status():
         "offers": [o.get("OFFER_NAME", "") for o in profile.offers],
         "company": profile.sender.get("COMPANY_NAME", ""),
         "problems": profile.problems,
-        "has_gemini_key": bool((os.environ.get("GEMINI_API_KEY") or "").strip()),
+        "has_gemini_key": _has_llm_key(),   # kept for older UI code: true if ANY provider has a key
+        "has_ai_key": _has_llm_key(),
+        "providers": llm_client.configured_providers(),
     }
 
 
 @app.post("/api/offer/suggest")
 async def suggest_searches():
     profile = _require_offer()
-    if not (os.environ.get("GEMINI_API_KEY") or "").strip():
+    if not _has_llm_key():
         return {"source": "offer form", "suggestions": pitch_writer.fallback_suggestions(profile)}
     try:
-        items = await pitch_writer.suggest_searches(_gemini_client(), profile)
-        return {"source": "gemini", "suggestions": items}
+        items = await pitch_writer.suggest_searches(_llm_client(), profile)
+        return {"source": "ai", "suggestions": items}
     except (GeminiError, pitch_writer.PitchError) as e:
         return {"source": "offer form", "note": str(e), "suggestions": pitch_writer.fallback_suggestions(profile)}
+
+
+@app.get("/api/search/{job_id}/pitches/count")
+async def pitch_count(job_id: str):
+    """How many finished pitches the CSV holds right now (for the 'download so far' button)."""
+    path = _csv_path(job_id)
+    if not os.path.exists(path):
+        return {"written": 0, "total": 0}
+    rows = _load_rows(job_id)
+    return {"written": sum(1 for r in rows if r.get("pitch_status") in pitch_runner.DONE_STATUSES), "total": len(rows)}
+
+
+@app.get("/api/offer/form")
+async def offer_form_get():
+    """Current my_offer.txt as form fields, so the panel is pre-filled."""
+    prof = load_offer_profile(OFFER_PATH)
+    return {"sender": prof.sender, "offers": prof.offers,
+            "sender_keys": offer_profile.SENDER_KEYS, "offer_keys": offer_profile.OFFER_KEYS}
+
+
+def _offer_path(job_id: str) -> str:
+    """A job started from the one-run panel keeps its own offer file; otherwise my_offer.txt."""
+    own = os.path.join(DOWNLOAD_DIR, f"{job_id}.offer.txt")
+    return own if os.path.exists(own) else OFFER_PATH
+
+
+def _write_offer_form(form: OfferForm, path: str) -> None:
+    offer = {k: v for k, v in form.offer.items() if k in offer_profile.OFFER_KEYS}
+    sender = {k: v for k, v in form.sender.items() if k in offer_profile.SENDER_KEYS}
+    if not (offer.get("OFFER_NAME") or "").strip() or not (offer.get("WHAT_I_SELL") or "").strip():
+        raise HTTPException(status_code=400, detail="Please fill in at least 'Offer name' and 'What you sell'.")
+    if os.path.abspath(path) == os.path.abspath(OFFER_PATH) and os.path.exists(path):
+        try:
+            import shutil
+            shutil.copyfile(path, path.replace("my_offer.txt", "my_offer.backup.txt"))
+        except OSError:
+            pass
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(offer_profile.render_offer_file(sender, [offer]))
 
 
 @app.get("/api/search/{job_id}/pitches/preview")
 async def pitch_preview(job_id: str, min_score: int = 0):
     rows = _load_rows(job_id)
-    profile = load_offer_profile(OFFER_PATH)
+    profile = load_offer_profile(_offer_path(job_id))
     if not profile.ok:
         return {"offer_ok": False, "total": len(rows), "eligible": 0, "already_written": 0, "eligible_scores": [], "blockers": {}}
     return {"offer_ok": True, **pitch_runner.preview(rows, profile, min_score)}
@@ -556,8 +651,8 @@ async def pitch_start(job_id: str, body: PitchStart):
     existing = pitch_tasks.get(job_id)
     if existing and not existing.done():
         raise HTTPException(status_code=409, detail="Pitches are already being written for this search.")
-    profile = _require_offer()
-    client = _gemini_client()
+    profile = _require_offer(job_id)
+    client = _llm_client()
     rows = _load_rows(job_id)
     state = {"phase": "writing", "total": 0, "done": 0, "failed": 0, "message": "", "logs": []}
     pitch_states[job_id] = state
@@ -642,8 +737,8 @@ async def pitch_regenerate(job_id: str, idx: int):
     running = pitch_tasks.get(job_id)
     if running and not running.done():
         raise HTTPException(status_code=409, detail="Pitches are being written right now - stop that first.")
-    profile = _require_offer()
-    client = _gemini_client()
+    profile = _require_offer(job_id)
+    client = _llm_client()
     rows = _load_rows(job_id)
     if not 0 <= idx < len(rows):
         raise HTTPException(status_code=404, detail="No such business.")

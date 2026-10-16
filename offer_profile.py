@@ -141,3 +141,23 @@ def load_offer_profile(path: str) -> OfferProfile:
     if not prof.offers:
         prof.problems.append("no filled-in OFFER section found")
     return prof
+
+
+def render_offer_file(sender: dict, offers: list) -> str:
+    """Builds my_offer.txt text from form values (the reverse of load_offer_profile)."""
+    def val(v):
+        if isinstance(v, (list, tuple)):
+            v = ", ".join(str(x) for x in v)
+        return " ".join(str(v or "").split())
+
+    out = ["# Written by the Lead Finder 'one-run' panel. You can edit this file by hand too.", "",
+           "=== SENDER ==="]
+    for k in SENDER_KEYS:
+        if val(sender.get(k)):
+            out.append(f"{k}: {val(sender[k])}")
+    for offer in offers:
+        out += ["", "=== OFFER ==="]
+        for k in OFFER_KEYS:
+            if val(offer.get(k)):
+                out.append(f"{k}: {val(offer[k])}")
+    return "\n".join(out) + "\n"

@@ -7,3 +7,4 @@ scraper/webdata/
 *.db
 # personal pitch form (copy my_offer.template.txt -> my_offer.txt)
 my_offer.txt
+my_offer.backup.txt

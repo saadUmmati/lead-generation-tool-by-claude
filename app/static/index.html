@@ -136,6 +136,17 @@
     border: 1px solid var(--accent2);
     color: var(--accent2);
   }
+  .onerun-btn { background: transparent; border: 1px solid var(--accent2); color: var(--accent2); margin-top: 10px; }
+  .onerun-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .onerun-grid .full { grid-column: 1 / -1; }
+  .onerun-grid textarea { width: 100%; min-height: 60px; padding: 10px 12px; background: #0f1420; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 13px; font-family: inherit; resize: vertical; }
+  .onerun-grid input[type=text] { width: 100%; }
+  #oneRunCard { display: none; border-color: var(--accent2); }
+  #oneRunCard.show { display: block; }
+  .partial-row { display: none; margin-top: 14px; padding: 12px; border: 1px dashed var(--accent2); border-radius: 10px; }
+  .partial-row.show { display: block; }
+  .partial-row .links { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+  @media (max-width: 640px) { .onerun-grid { grid-template-columns: 1fr; } }
   .error-box {
     margin-top: 16px;
     padding: 12px 14px;
@@ -324,6 +335,21 @@
 
     <button id="searchBtn" onclick="startSearch()">Start Search</button>
     <button id="stopBtn" class="stop-btn" style="display:none;" onclick="stopSearch()">Stop &amp; Save What's Found</button>
+    <button type="button" id="oneRunBtn" class="onerun-btn" onclick="openOneRun()">⚡ Get finalized CSV in one run (search + pitches)</button>
+
+    <div class="card" id="oneRunCard" style="margin-top:16px;margin-bottom:0;">
+      <h2 style="margin:0 0 4px;font-size:18px;">⚡ One run: search → crawl → pitches → one CSV</h2>
+      <div class="hint" style="margin-top:0;">Fill in who you are and what you sell. Uses the Business type and Location above. Fields are pre-filled from <code>my_offer.txt</code> when it exists. The first two (marked *) are required; more detail = better pitches.</div>
+      <div class="onerun-grid" id="oneRunFields"></div>
+      <label for="oneRunMin">Only write pitches for businesses scoring at least</label>
+      <input type="number" id="oneRunMin" value="40" min="0" max="100" />
+      <label style="display:flex;gap:8px;align-items:center;margin-top:14px;"><input type="checkbox" id="oneRunSave" /> Also save these details as my_offer.txt (the old file is kept as my_offer.backup.txt)</label>
+      <div class="hint">This form describes ONE offer for this run only. If your <code>my_offer.txt</code> has several offers, it stays untouched unless you tick the box above.</div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button type="button" id="oneRunGo" class="btn-sm" style="flex:1;padding:12px;font-size:14px;" onclick="startOneRun()">Start one-run</button>
+        <button type="button" class="btn-sm btn-ghost" onclick="closeOneRun()">Cancel</button>
+      </div>
+    </div>
 
     <div class="error-box" id="errorBox"></div>
 
@@ -341,7 +367,7 @@
 
   <div class="card" id="pitchCard">
     <h2 style="margin:0 0 4px;font-size:18px;">✉ Pitches</h2>
-    <div class="hint" style="margin-top:0;">Written by Gemini from each business's public details and your <code>my_offer.txt</code>. Nothing is ever sent automatically.</div>
+    <div class="hint" style="margin-top:0;">Written by AI (Gemini and/or Groq) from each business's public details and your <code>my_offer.txt</code>. Nothing is ever sent automatically.</div>
     <div id="offerNotice"></div>
 
     <label for="minScore" style="margin-top:18px;">Only write pitches for businesses scoring at least:</label>
@@ -356,6 +382,11 @@
     </div>
     <div class="progress" id="pitchProgress" style="display:none;"><div id="pitchBar"></div></div>
     <div id="pitchStatusText" class="hint"></div>
+    <div class="partial-row" id="partialRow">
+      <b style="font-size:13px;">🔒 Secure your pitches</b>
+      <div class="hint" id="partialNote" style="margin-top:4px;"></div>
+      <div class="links" id="partialLinks"></div>
+    </div>
     <div id="pitchList"></div>
   </div>
 </div>
@@ -397,13 +428,12 @@
     <p>No paid APIs, no accounts required, no data leaves your computer except to the websites/services
     being queried (Google Maps via gosom, and optionally OpenStreetMap).</p>
 
-    <h3>8. Pitches (Gemini)</h3>
-    <p>Fill in <code>my_offer.txt</code> once with what you sell and who it is for, and put your free Gemini key in
-    <code>.env</code>. After a search, use the slider to choose the minimum quality score, then click
+    <h3>8. Pitches (Gemini and/or Groq)</h3>
+    <p>Fill in <code>my_offer.txt</code> once with what you sell and who it is for, and put a free Gemini key and/or a free Groq key in
+    <code>.env</code> (with both, the tool switches provider automatically when one is busy or out of quota). After a search, use the slider to choose the minimum quality score, then click
     <b>Write pitches</b>: each qualifying business gets a cold email, a short DM, a call opener and a follow-up,
     built only from its public details. Review and edit them, then copy or open them in your own email app.
-    If Gemini's free daily limit is reached, the run pauses with everything saved; click the button again later
-    to continue. The email always ends with your opt-out line and postal address from the form.</p>
+    If a free limit is reached, the run pauses with everything saved; use <b>Download pitches so far</b> to grab the CSV at any time, then click the button again later to continue. <b>⚡ Get finalized CSV in one run</b> does search, crawl and pitches in one go from a details form. The email always ends with your opt-out line and postal address from the form.</p>
 
     <button class="close-btn" onclick="toggleHelp(false)">Close</button>
   </div>
@@ -437,7 +467,8 @@ function numOrNull(id) {
   return v === '' ? null : Number(v);
 }
 
-async function startSearch() {
+async function startSearch(opts) {
+  opts = opts || {};
   clearError();
   const businessType = document.getElementById('businessType').value.trim();
   const location = document.getElementById('location').value.trim();
@@ -486,7 +517,8 @@ async function startSearch() {
         use_osm: useOsm,
         wide_area_grid: wideAreaGrid,
         grid_cell_km: gridCellKm,
-        use_js_fallback: jsFallback
+        use_js_fallback: jsFallback,
+        ...(opts.extra || {})
       })
     });
     if (!resp.ok) {
@@ -521,8 +553,8 @@ function renderLogs(logs) {
   panel.scrollTop = panel.scrollHeight;
 }
 
-function downloadLinks(jobId) {
-  return `
+function downloadLinks(jobId, partial) {
+  return (partial ? '<div class="hint" style="width:100%;margin:0 0 6px;">Download what is ready so far:</div>' : '') + `
     <a class="download-btn" href="/api/search/${jobId}/download?format=csv">Download CSV</a>
     <a class="download-btn secondary" href="/api/search/${jobId}/download?format=xlsx">Excel</a>
     <a class="download-btn secondary" href="/api/search/${jobId}/download?format=json">JSON</a>
@@ -555,9 +587,10 @@ async function pollStatus(jobId) {
       const status = job.status;
 
       if (status === 'done' || status === 'stopped') {
+        const wasOneRun = !!(window._oneRunJob && window._oneRunJob === jobId);
         clearInterval(pollTimer);
         document.getElementById('statusText').textContent =
-          status === 'done' ? 'Done — all sources crawled, validated, and scored.' : 'Stopped — everything found so far is saved.';
+          status === 'done' ? (wasOneRun ? 'Done — your finalized CSV (with pitches) is ready.' : 'Done — all sources crawled, validated, and scored.') : 'Stopped — everything found so far is saved.';
         document.getElementById('statusBadge').className = 'badge done';
         document.getElementById('statusBadge').textContent = status;
         document.getElementById('spinner').style.display = 'none';
@@ -575,6 +608,11 @@ async function pollStatus(jobId) {
         if (job.logs && job.logs.length > 2) {
           document.getElementById('downloadArea').innerHTML = downloadLinks(jobId);
         }
+      } else if (status === 'pitching') {
+        const p = job.pitch || {};
+        document.getElementById('statusText').textContent =
+          `Writing pitches… ${p.done || 0}/${p.total || '?'}` + (p.failed ? ` (${p.failed} failed)` : '') + ' — CSV is saved after every pitch';
+        document.getElementById('downloadArea').innerHTML = downloadLinks(jobId, true);
       } else if (status === 'enriching') {
         const done = job.enrichment_done || 0;
         const total = job.enrichment_total || 0;
@@ -629,9 +667,9 @@ async function loadSuggestions() {
     const r = await fetch('/api/offer/suggest', { method: 'POST' });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'Could not get suggestions.');
-    note.textContent = d.source === 'gemini'
-      ? 'Suggested by Gemini from your offer. Click one to fill the Business type box.'
-      : 'From the categories in your offer form' + (d.note ? ' (Gemini unavailable: ' + d.note + ')' : '') + '. Click one to use it.';
+    note.textContent = d.source === 'ai'
+      ? 'Suggested by AI from your offer. Click one to fill the Business type box.'
+      : 'From the categories in your offer form' + (d.note ? ' (AI unavailable: ' + d.note + ')' : '') + '. Click one to use it.';
     d.suggestions.forEach(s => {
       const c = el('button', 'chip', s.business_type);
       c.type = 'button'; c.title = s.why || '';
@@ -656,8 +694,12 @@ async function showPitchCard(jobId) {
       notice.appendChild(el('div', 'notice ok', 'Offer form loaded: ' + (o.company || 'your company') + ' - ' + o.offers.length + ' offer(s): ' + o.offers.join(', ')));
       (o.problems || []).forEach(p => notice.appendChild(el('div', 'notice warn', 'my_offer.txt: ' + p)));
     }
-    if (!o.has_gemini_key) {
-      notice.appendChild(el('div', 'notice warn', 'No Gemini key found. Put GEMINI_API_KEY=... in the .env file next to run.bat and restart run.bat.'));
+    if (!o.has_ai_key) {
+      notice.appendChild(el('div', 'notice warn', 'No AI key found. Put GEMINI_API_KEY=... and/or GROQ_API_KEY=... (both free) in the .env file next to run.bat and restart run.bat.'));
+    } else if ((o.providers || []).length === 1) {
+      notice.appendChild(el('div', 'hint', 'AI provider: ' + o.providers[0] + '. Add a second free key (Gemini or Groq) to .env to switch over automatically when one is busy or out of quota.'));
+    } else {
+      notice.appendChild(el('div', 'hint', 'AI providers: ' + o.providers.join(' + ') + ' (automatic fallback if one fails).'));
     }
   } catch (e) { /* ignore */ }
   await updatePreview();
@@ -748,7 +790,7 @@ function watchPitches(jobId) {
       document.getElementById('pitchStopBtn').style.display = 'none';
       const msgs = {
         done: `Done: ${s.done} written` + (s.failed ? `, ${s.failed} failed` : '') + '.' + (s.message ? ' ' + s.message : ''),
-        paused: 'Paused: ' + s.message + ' Everything written so far is saved. Click "Write pitches" to continue.',
+        paused: 'Paused: ' + s.message + ' Everything written so far is saved - use "Download pitches so far" below. Click "Write pitches" later to continue.',
         stopped: 'Stopped. Everything written so far is saved.',
         failed: 'Could not continue: ' + s.message
       };
@@ -769,6 +811,76 @@ async function refreshPitchList(jobId) {
   try { items = (await (await fetch(`/api/search/${jobId}/pitches`)).json()).pitches || []; } catch (e) { return; }
   box.innerHTML = '';
   items.forEach(p => box.appendChild(buildPitchItem(jobId, p)));
+  updatePartial(jobId);
+}
+
+async function updatePartial(jobId) {
+  const row = document.getElementById('partialRow');
+  try {
+    const c = await (await fetch(`/api/search/${jobId}/pitches/count`)).json();
+    if (!c.written) { row.classList.remove('show'); return; }
+    row.classList.add('show');
+    document.getElementById('partialNote').textContent =
+      `${c.written} pitch(es) written so far are already inside the file (all ${c.total} businesses, pitch columns filled for the ${c.written} written). Works any time - also while writing, after a limit pause or a Stop.`;
+    document.getElementById('partialLinks').innerHTML = downloadLinks(jobId);
+  } catch (e) { /* ignore */ }
+}
+
+// ------------------------------------------------------------ one-run ----
+const ONE_RUN_FIELDS = [
+  ['sender','YOUR_NAME','Your name','text'],['sender','YOUR_ROLE','Your role','text'],
+  ['sender','COMPANY_NAME','Company name','text'],['sender','COMPANY_WEBSITE','Company website','text'],
+  ['sender','REPLY_TO_EMAIL','Reply-to email','text'],['sender','PHONE_OR_WHATSAPP','Phone / WhatsApp','text'],
+  ['sender','COMPANY_ONE_LINER','Company one-liner','full'],
+  ['sender','TONE','Tone (friendly, professional, direct…)','text'],['sender','PITCH_LANGUAGE','Pitch language (or AUTO)','text'],
+  ['sender','OPT_OUT_LINE','Opt-out line (added to every email)','full'],['sender','POSTAL_ADDRESS','Postal address (added to every email)','full'],
+  ['offer','OFFER_NAME','Offer name *','text'],['offer','WHAT_I_SELL','What you sell * (1-2 plain sentences)','area'],
+  ['offer','TARGET_CUSTOMERS','Target customers','area'],['offer','MATCH_CATEGORIES','Match categories (comma-separated)','full'],
+  ['offer','MATCH_KEYWORDS','Match keywords (comma-separated)','full'],['offer','SKIP_IF_KEYWORDS','Skip if keywords (chains etc.)','full'],
+  ['offer','PROBLEM_I_SOLVE','Problem you solve','area'],['offer','OUTCOME_FOR_THEM','Outcome for them','area'],
+  ['offer','PROOF_POINTS','Proof points (real ones only)','area'],['offer','HOOK','Hook / angle','area'],
+  ['offer','CALL_TO_ACTION','Call to action','text'],['offer','PRICE_HINT','Price hint','text'],
+  ['offer','DONT_SAY','Never say','text'],['offer','EXTRA_NOTES','Extra notes','area'],
+];
+
+async function openOneRun() {
+  const card = document.getElementById('oneRunCard');
+  const grid = document.getElementById('oneRunFields');
+  let pre = { sender: {}, offers: [] };
+  try { pre = await (await fetch('/api/offer/form')).json(); } catch (e) { /* start empty */ }
+  const first = (pre.offers || [])[0] || {};
+  grid.innerHTML = '';
+  ONE_RUN_FIELDS.forEach(([grp, key, label, kind]) => {
+    const wrap = el('div', kind === 'text' ? '' : 'full');
+    wrap.appendChild(el('label', '', label));
+    let v = (grp === 'sender' ? pre.sender : first)[key] || '';
+    if (Array.isArray(v)) v = v.join(', ');
+    const inp = document.createElement(kind === 'area' ? 'textarea' : 'input');
+    if (kind !== 'area') inp.type = 'text';
+    inp.value = v; inp.dataset.grp = grp; inp.dataset.key = key;
+    wrap.appendChild(inp); grid.appendChild(wrap);
+  });
+  if ((pre.offers || []).length > 1) {
+    grid.appendChild(el('div', 'notice warn full', `Your my_offer.txt has ${pre.offers.length} offers; this form is pre-filled with the first ("${first.OFFER_NAME || ''}") and the run uses only what you see here.`));
+  }
+  card.classList.add('show');
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeOneRun() { document.getElementById('oneRunCard').classList.remove('show'); }
+
+async function startOneRun() {
+  clearError();
+  const form = { sender: {}, offer: {} };
+  document.querySelectorAll('#oneRunFields [data-key]').forEach(i => { form[i.dataset.grp][i.dataset.key] = i.value.trim(); });
+  if (!form.offer.OFFER_NAME || !form.offer.WHAT_I_SELL) { showError("Please fill in 'Offer name' and 'What you sell' (marked *)."); return; }
+  const min = Math.max(0, Math.min(100, parseInt(document.getElementById('oneRunMin').value, 10) || 40));
+  document.getElementById('minScore').value = min; document.getElementById('minScoreVal').textContent = min;
+  closeOneRun();
+  window._oneRunJob = 'pending';
+  await startSearch({ extra: { auto_pitch: true, min_pitch_score: min, offer_form: form,
+                               save_offer_as_default: document.getElementById('oneRunSave').checked } });
+  window._oneRunJob = currentJobId;
 }
 
 function buildPitchItem(jobId, p) {
