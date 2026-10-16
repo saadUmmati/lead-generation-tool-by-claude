@@ -31,6 +31,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from email_extract import extract_page, contact_candidates, sitemap_contact_urls, PROBE_PATHS
 from site_summary import SUMMARY_FIELDS, empty_summary, summarize_site
 
 CONCURRENCY = 8
@@ -145,6 +146,15 @@ async def fetch_ex(client: httpx.AsyncClient, url: str):
     return resp.text, ""
 
 
+async def fetch_text(client: httpx.AsyncClient, url: str) -> str | None:
+    """Plain GET for small non-HTML public files such as sitemap.xml."""
+    try:
+        resp = await client.get(url, timeout=TIMEOUT, follow_redirects=True)
+    except (httpx.HTTPError, httpx.InvalidURL):
+        return None
+    return resp.text[:500_000] if resp.status_code == 200 else None
+
+
 async def fetch(client: httpx.AsyncClient, url: str) -> str | None:
     return (await fetch_ex(client, url))[0]
 
@@ -197,50 +207,45 @@ async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dic
             return result
 
         pages_to_check = {website: base_html}
-        soup = BeautifulSoup(base_html, "html.parser")
-        parsed_base = urlparse(website)
-
-        # find internal links matching contact/about/etc hints, same domain only
-        internal_candidates = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            full = urljoin(website, href)
-            parsed = urlparse(full)
-            if parsed.netloc != parsed_base.netloc:
-                continue
-            path_l = parsed.path.lower()
-            if any(hint in path_l for hint in INTERNAL_PAGE_HINTS):
-                internal_candidates.append(full)
-
-        # limit to a few extra pages to stay polite
-        for extra_url in list(dict.fromkeys(internal_candidates))[:4]:
-            html = await fetch(client, extra_url)
-            if html:
-                pages_to_check[extra_url] = html
-
         all_emails: dict[str, str] = {}
         socials: dict[str, str] = {}
 
-        for page_url, html in pages_to_check.items():
-            page_soup = BeautifulSoup(html, "html.parser")
+        def absorb(page_url: str, html: str, tag: str = "") -> None:
+            found_e, found_s = extract_page(html, page_url)
+            for addr, how in found_e.items():
+                if addr not in all_emails:
+                    note = f"{how}{tag}" if how != "mailto link" else tag.strip(" ,()") or "mailto"
+                    all_emails[addr] = f"{page_url} ({note})" if note else page_url
+            for platform, link in found_s.items():
+                socials.setdefault(platform, link)
 
-            for a in page_soup.find_all("a", href=True):
-                href = a["href"]
-                if href.lower().startswith("mailto:"):
-                    addr = href[7:].split("?")[0].strip()
-                    if addr and addr not in all_emails:
-                        all_emails[addr] = page_url
+        absorb(website, base_html)
+
+        # contact / about / legal pages linked from the homepage (many languages), same site only
+        for extra_url in contact_candidates(base_html, website, limit=4):
+            html = await fetch(client, extra_url)
+            if html:
+                pages_to_check[extra_url] = html
+                absorb(extra_url, html)
+
+        # Still no address anywhere? Many sites don't link their contact page from the homepage
+        # (JS menus) - try the few conventional public paths, and the site's own sitemap.xml.
+        # A handful of extra GETs, only for sites that would otherwise yield nothing; a 403/404 is
+        # simply the end of that road.
+        if not all_emails:
+            origin = f"{urlparse(website).scheme}://{urlparse(website).netloc}"
+            tried = 0
+            sm = await fetch_text(client, origin + "/sitemap.xml")
+            probe = sitemap_contact_urls(sm or "", website, limit=2)
+            probe += [origin + p for p in PROBE_PATHS]
+            for u in dict.fromkeys(probe):
+                if u in pages_to_check or tried >= 4 or all_emails:
                     continue
-                platform = classify_social(href)
-                if platform and platform not in socials:
-                    socials[platform] = urljoin(page_url, href)
-
-            for addr in extract_emails(page_soup.get_text(" ")):
-                if addr not in all_emails:
-                    all_emails[addr] = page_url
-            for addr in extract_cf_protected_emails(html):
-                if addr not in all_emails:
-                    all_emails[addr] = f"{page_url} (Cloudflare-protected)"
+                tried += 1
+                html = await fetch(client, u)
+                if html:
+                    pages_to_check[u] = html
+                    absorb(u, html)
 
         # Fallback: if the fast path found nothing at all, and a browser
         # pool was provided, render the homepage with real JavaScript and
@@ -256,23 +261,7 @@ async def enrich_one(client: httpx.AsyncClient, sem: asyncio.Semaphore, row: dic
         if need_js and browser_pool is not None:
             rendered_html = await browser_pool.render(website)
             if rendered_html:
-                render_soup = BeautifulSoup(rendered_html, "html.parser")
-                for a in render_soup.find_all("a", href=True):
-                    href = a["href"]
-                    if href.lower().startswith("mailto:"):
-                        addr = href[7:].split("?")[0].strip()
-                        if addr and addr not in all_emails:
-                            all_emails[addr] = f"{website} (JS-rendered)"
-                        continue
-                    platform = classify_social(href)
-                    if platform and platform not in socials:
-                        socials[platform] = urljoin(website, href)
-                for addr in extract_emails(render_soup.get_text(" ")):
-                    if addr not in all_emails:
-                        all_emails[addr] = f"{website} (JS-rendered)"
-                for addr in extract_cf_protected_emails(rendered_html):
-                    if addr not in all_emails:
-                        all_emails[addr] = f"{website} (JS-rendered, Cloudflare-protected)"
+                absorb(website, rendered_html, tag=", JS-rendered")
 
         if rendered_html:
             summary = summarize_site({**pages_to_check, website + "#js": rendered_html}, rendered_js=True)
